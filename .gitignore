@@ -3,6 +3,7 @@ tmp
 build/iphone/*
 !build/iphone/.gitignore
 build/android/*
+build/mobileweb/*
 !build/android/.gitignore
 .settings
 build.log
