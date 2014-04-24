@@ -1,3 +1,15 @@
+if (typeof Titanium !== 'undefined'){
+  if (typeof window === 'undefined'){
+    window = { top : {}, location : { protocol : '', href : '' } };
+  }
+  if (typeof document === 'undefined'){
+    document = { location : { href : '', search : '' } };
+  }
+  if (typeof navigator === 'undefined'){
+    navigator = { userAgent : 'Titanium' };
+  }
+}
+
 !function(e){if("object"==typeof exports)module.exports=e();else if("function"==typeof define&&define.amd)define(e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.feedhenry=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 (function (global){
 ;__browserify_shim_require__=_dereq_;(function browserifyShim(module, exports, _dereq_, define, browserify_shim__define__module__export__) {
@@ -4440,18 +4452,24 @@ Lawnchair.adapter('titanium', (function(global){
         // constructor call and callback. 'name' is the most common option
         init: function( options, callback ) {
           if (callback){
-            return callback(this);
+            return this.fn('init', callback).call(this)
           }
         },
 
         // returns all the keys in the store
         keys: function( callback ) {
-            return Titanium.App.Properties.listProperties();
+          if (callback) {
+            return this.fn('keys', callback).call(this, Titanium.App.Properties.listProperties());
+          }
+          return this;
         },
 
         // save an object
         save: function( obj, callback ) {
-            Titanium.App.Properties.setObject(obj.key, obj);
+            var saveRes = Titanium.App.Properties.setObject(obj.key, obj);
+            if (callback) {
+              return this.fn('save', callback).call(this, saveRes);
+            }
             return this;
         },
 
@@ -4484,7 +4502,7 @@ Lawnchair.adapter('titanium', (function(global){
                     });
                 }
             } else {
-                return callback(this, Titanium.App.Properties.getObject(key));
+                return this.fn('init', callback).call(this, Titanium.App.Properties.getObject(key));
             }
             return this;
         },
@@ -4493,9 +4511,9 @@ Lawnchair.adapter('titanium', (function(global){
         exists: function( key, callback ) {
             if (callback){
               if (Titanium.App.Properties.getObject(key)){
-                return cb(this, true);
+                return callback(this, true);
               }else{
-                return cb(this, false);
+                return callback(this, false);
               }
             }
 
@@ -4524,7 +4542,7 @@ Lawnchair.adapter('titanium', (function(global){
             var me = this;
             Titanium.App.Properties.removeProperty(key);
             if (callback) {
-              return callback(this);
+              return this.fn('remove', callback).call(this);
             }
             return this;
         },
@@ -7605,7 +7623,7 @@ module.exports = fh;
 
 
 
-},{"./modules/ajax":18,"./modules/api_act":19,"./modules/api_auth":20,"./modules/api_cloud":21,"./modules/api_hash":22,"./modules/api_mbaas":23,"./modules/api_sec":24,"./modules/appProps":25,"./modules/constants":27,"./modules/device":29,"./modules/events":30,"./modules/fhparams":31,"./modules/logger":38,"./modules/sync-cli":46,"./modules/waitForCloud":48}],17:[function(_dereq_,module,exports){
+},{"./modules/ajax":18,"./modules/api_act":19,"./modules/api_auth":20,"./modules/api_cloud":21,"./modules/api_hash":22,"./modules/api_mbaas":23,"./modules/api_sec":24,"./modules/appProps":"zDENqi","./modules/constants":26,"./modules/device":27,"./modules/events":28,"./modules/fhparams":29,"./modules/logger":36,"./modules/sync-cli":44,"./modules/waitForCloud":50}],17:[function(_dereq_,module,exports){
 var XDomainRequestWrapper = function(xdr){
   this.xdr = xdr;
   this.isWrapper = true;
@@ -7946,10 +7964,7 @@ function getXhr(crossDomain){
   // For Titanium SDK
   if (typeof Titanium !== 'undefined'){
     xhr = Titanium.Network.createHTTPClient({
-      timeout: ajax.settings.timeout,
-      onerror : function(){
-        //NOOP - xhr.onreadystatechange is sufficient
-      }
+      timeout: ajax.settings.timeout
     });
   }
 
@@ -8072,7 +8087,7 @@ function extend(target) {
   return target
 }
 
-},{"./XDomainRequestWrapper":17,"./events":30,"./logger":38,"type-of":15}],19:[function(_dereq_,module,exports){
+},{"./XDomainRequestWrapper":17,"./events":28,"./logger":36,"type-of":15}],19:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
@@ -8123,7 +8138,7 @@ module.exports = function(opts, success, fail){
   })
 }
 
-},{"./ajax":18,"./appProps":25,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],20:[function(_dereq_,module,exports){
+},{"./ajax":18,"./appProps":"zDENqi","./fhparams":29,"./handleError":31,"./logger":36,"./waitForCloud":50,"JSON":3}],20:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
@@ -8189,7 +8204,7 @@ module.exports = function(opts, success, fail){
     }
   });
 }
-},{"./ajax":18,"./appProps":25,"./checkAuth":26,"./constants":27,"./device":29,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],21:[function(_dereq_,module,exports){
+},{"./ajax":18,"./appProps":"zDENqi","./checkAuth":25,"./constants":26,"./device":27,"./fhparams":29,"./handleError":31,"./logger":36,"./waitForCloud":50,"JSON":3}],21:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
@@ -8234,7 +8249,7 @@ module.exports = function(opts, success, fail){
     }
   })
 }
-},{"./ajax":18,"./appProps":25,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],22:[function(_dereq_,module,exports){
+},{"./ajax":18,"./appProps":"zDENqi","./fhparams":29,"./handleError":31,"./logger":36,"./waitForCloud":50,"JSON":3}],22:[function(_dereq_,module,exports){
 var hashImpl = _dereq_("./security/hash");
 
 module.exports = function(p, s, f){
@@ -8246,7 +8261,7 @@ module.exports = function(p, s, f){
   params.params = p;
   hashImpl(params, s, f);
 };
-},{"./security/hash":44}],23:[function(_dereq_,module,exports){
+},{"./security/hash":42}],23:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
@@ -8292,7 +8307,7 @@ module.exports = function(opts, success, fail){
   });
 } 
 
-},{"./ajax":18,"./appProps":25,"./constants":27,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],24:[function(_dereq_,module,exports){
+},{"./ajax":18,"./appProps":"zDENqi","./constants":26,"./fhparams":29,"./handleError":31,"./logger":36,"./waitForCloud":50,"JSON":3}],24:[function(_dereq_,module,exports){
 var keygen = _dereq_("./security/aes-keygen");
 var aes = _dereq_("./security/aes-node");
 var rsa = _dereq_("./security/rsa-node");
@@ -8336,88 +8351,7 @@ module.exports = function(p, s, f){
     }
   }
 }
-},{"./security/aes-keygen":42,"./security/aes-node":43,"./security/hash":44,"./security/rsa-node":45}],25:[function(_dereq_,module,exports){
-var consts = _dereq_("./constants");
-var ajax = _dereq_("./ajax");
-var logger = _dereq_("./logger");
-var qs = _dereq_("./queryMap");
-
-var app_props = null;
-
-var load = function(cb) {
-  var doc_url = document.location.href;
-  var url_params = qs(doc_url);
-  var local = (typeof url_params.url !== 'undefined');
-
-  // For local environments, no init needed
-  if (local) {
-    app_props = {};
-    app_props.local = true;
-    app_props.host = url_params.url;
-    app_props.appid = "000000000000000000000000";
-    app_props.appkey = "0000000000000000000000000000000000000000";
-    app_props.projectid = "000000000000000000000000";
-    app_props.connectiontag = "0.0.1";
-    app_props.loglevel = url_params.loglevel;
-    return cb(null, app_props);
-  }
-
-  if (typeof Titanium !== 'undefined'){
-  	/*
-     We use eval here because Titanium also does require to include third party scripts.
-     It bypasses browserify's require, but still triggers when in a Titanium app
-     */
-    app_props = eval("require(\"fhconfig\")");
-  	return cb(null, app_props);
-  }
-
-  var config_url = url_params.fhconfig || consts.config_js;
-  ajax({
-    url: config_url,
-    dataType: "json",
-    success: function(data) {
-      logger.debug("fhconfig = " + JSON.stringify(data));
-      //when load the config file on device, because file:// protocol is used, it will never call fail call back. The success callback will be called but the data value will be null.
-      if (null == data) {
-        //fh v2 only
-        if(window.fh_app_props){
-          app_props = window.fh_app_props;
-          return cb(null, window.fh_app_props);
-        }
-        return cb(new Error("app_config_missing"));
-      } else {
-        app_props = data;
-
-        cb(null, app_props);
-      }
-    },
-    error: function(req, statusText, error) {
-      //fh v2 only
-      if(window.fh_app_props){
-        app_props = window.fh_app_props;
-        return cb(null, window.fh_app_props);
-      }
-      logger.error(consts.config_js + " Not Found");
-      cb(new Error("app_config_missing"));
-    }
-  });
-};
-
-var setAppProps = function(props) {
-  app_props = props;
-};
-
-var getAppProps = function() {
-  return app_props;
-};
-
-module.exports = {
-  load: load,
-  getAppProps: getAppProps,
-  setAppProps: setAppProps
-};
-
-},{"./ajax":18,"./constants":27,"./logger":38,"./queryMap":40}],26:[function(_dereq_,module,exports){
+},{"./security/aes-keygen":40,"./security/aes-node":41,"./security/hash":42,"./security/rsa-node":43}],25:[function(_dereq_,module,exports){
 var logger = _dereq_("./logger");
 var queryMap = _dereq_("./queryMap");
 var JSON = _dereq_("JSON");
@@ -8525,19 +8459,7 @@ module.exports = {
   "handleAuthResponse": handleAuthResponse
 };
 
-},{"./fhparams":31,"./logger":38,"./queryMap":40,"JSON":3}],27:[function(_dereq_,module,exports){
-if (typeof window === 'undefined'){
-  window = { top : {}, location : { protocol : '', href : '' } };
-}
-if (typeof document === 'undefined'){
-  document = { location : { href : '', search : '' } };
-}
-if (typeof navigator === 'undefined'){
-  navigator = { userAgent : 'Unknown' };
-  if (typeof Titanium !== 'undefined'){
-    navigator.userAgent = 'Titanium';
-   }
-}
+},{"./fhparams":29,"./logger":36,"./queryMap":38,"JSON":3}],26:[function(_dereq_,module,exports){
 module.exports = {
   "boxprefix": "/box/srv/1.1/",
   "sdk_version": "2.0.3-alpha",
@@ -8545,40 +8467,7 @@ module.exports = {
   "INIT_EVENT": "fhinit"
 };
 
-},{}],28:[function(_dereq_,module,exports){
-module.exports = {
-  readCookieValue  : function (cookie_name) {
-    if (typeof Titanium !== 'undefined'){
-  	  return Titanium.App.Properties.getObject(cookie_name)
-  	}
-
-    var name_str = cookie_name + "=";
-    var cookies = document.cookie.split(";");
-    for (var i = 0; i < cookies.length; i++) {
-      var c = cookies[i];
-      while (c.charAt(0) === ' ') {
-        c = c.substring(1, c.length);
-      }
-      if (c.indexOf(name_str) === 0) {
-        return c.substring(name_str.length, c.length);
-      }
-    }
-    return null;
-  },
-
-  createCookie : function (cookie_name, cookie_value) {
-    if (typeof Titanium !== 'undefined'){
-  	  return Titanium.App.Properties.setObject(cookie_name, cookie_value)
-  	}
-    
-    var date = new Date();
-    date.setTime(date.getTime() + 36500 * 24 * 60 * 60 * 1000); //100 years
-    var expires = "; expires=" + date.toGMTString();
-    document.cookie = cookie_name + "=" + cookie_value + expires + "; path = /";
-  }
-};
-
-},{}],29:[function(_dereq_,module,exports){
+},{}],27:[function(_dereq_,module,exports){
 var cookies = _dereq_("./cookies");
 var uuidModule = _dereq_("./uuid");
 var logger = _dereq_("./logger");
@@ -8649,14 +8538,14 @@ module.exports = {
   }
 }
 
-},{"./cookies":28,"./logger":38,"./platformsMap":39,"./uuid":47}],30:[function(_dereq_,module,exports){
+},{"./cookies":"RdeKcl","./logger":36,"./platformsMap":37,"./uuid":49}],28:[function(_dereq_,module,exports){
 var EventEmitter = _dereq_('events').EventEmitter;
 
 var emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
 module.exports = emitter;
-},{"events":9}],31:[function(_dereq_,module,exports){
+},{"events":9}],29:[function(_dereq_,module,exports){
 var device = _dereq_("./device");
 var sdkversion = _dereq_("./sdkversion");
 var appProps = _dereq_("./appProps");
@@ -8726,7 +8615,7 @@ module.exports = {
   "setAuthSessionToken":setAuthSessionToken
 }
 
-},{"./appProps":25,"./device":29,"./logger":38,"./sdkversion":41}],32:[function(_dereq_,module,exports){
+},{"./appProps":"zDENqi","./device":27,"./logger":36,"./sdkversion":39}],30:[function(_dereq_,module,exports){
 module.exports = function(){
   var path = null;
   var scripts = document.getElementsByTagName('script');
@@ -8747,7 +8636,7 @@ module.exports = function(){
   return path;
 };
 
-},{}],33:[function(_dereq_,module,exports){
+},{}],31:[function(_dereq_,module,exports){
 var JSON = _dereq_("JSON");
 
 module.exports = function(fail, req, resStatus, error){
@@ -8774,7 +8663,7 @@ module.exports = function(fail, req, resStatus, error){
   }
 };
 
-},{"JSON":3}],34:[function(_dereq_,module,exports){
+},{"JSON":3}],32:[function(_dereq_,module,exports){
 var constants = _dereq_("./constants");
 var appProps = _dereq_("./appProps");
 
@@ -8864,7 +8753,7 @@ CloudHost.prototype.getCloudUrl = function(path){
 
 
 module.exports = CloudHost;
-},{"./appProps":25,"./constants":27}],35:[function(_dereq_,module,exports){
+},{"./appProps":"zDENqi","./constants":26}],33:[function(_dereq_,module,exports){
 var findFHPath = _dereq_("./findFHPath");
 var loadScript = _dereq_("./loadScript");
 var Lawnchair = _dereq_('../../libs/generated/lawnchair');
@@ -8921,12 +8810,16 @@ var loadCloudProps = function(app_props, callback) {
   //as dom, webkit-sqlite, localFileStorage, window-name
   var lcConf = {
     name: "fh_init_storage",
-    adapter: ["dom", "webkit-sqlite", "localFileStorage", "window-name", "titanium"],
+    adapter: ["dom", "webkit-sqlite", "localFileStorage", "window-name"],
     fail: function(msg, err) {
       var error_message = 'read/save from/to local storage failed  msg:' + msg + ' err:' + err;
       return fail(error_message, {});
     }
   };
+
+  if(typeof Titanium !== "undefined"){
+    lcConf.adapter = ['titanium'];
+  }
 
   var storage = null;
   try {
@@ -9011,7 +8904,7 @@ module.exports = {
   "loadCloudProps": loadCloudProps
 }
 
-},{"../../libs/generated/lawnchair":2,"./ajax":18,"./appProps":25,"./constants":27,"./fhparams":31,"./findFHPath":32,"./handleError":33,"./lawnchair-ext":36,"./loadScript":37,"./logger":38,"./security/hash":44,"JSON":3}],36:[function(_dereq_,module,exports){
+},{"../../libs/generated/lawnchair":2,"./ajax":18,"./appProps":"zDENqi","./constants":26,"./fhparams":29,"./findFHPath":30,"./handleError":31,"./lawnchair-ext":34,"./loadScript":35,"./logger":36,"./security/hash":42,"JSON":3}],34:[function(_dereq_,module,exports){
 var Lawnchair = _dereq_('../../libs/generated/lawnchair');
 
 var fileStorageAdapter = function (app_props, hashFunc) {
@@ -9199,7 +9092,7 @@ var addAdapter = function(app_props, hashFunc){
 module.exports = {
   addAdapter: addAdapter
 }
-},{"../../libs/generated/lawnchair":2}],37:[function(_dereq_,module,exports){
+},{"../../libs/generated/lawnchair":2}],35:[function(_dereq_,module,exports){
 module.exports = function (url, callback) {
   var script;
   var head = document.head || document.getElementsByTagName("head")[0] || document.documentElement;
@@ -9222,7 +9115,7 @@ module.exports = function (url, callback) {
   head.insertBefore(script, head.firstChild);
 };
 
-},{}],38:[function(_dereq_,module,exports){
+},{}],36:[function(_dereq_,module,exports){
 var console = _dereq_('console');
 var log = _dereq_('loglevel');
 
@@ -9246,7 +9139,7 @@ log.setLevel('info');
  * Use either string or integer value
  */
 module.exports = log;
-},{"console":8,"loglevel":14}],39:[function(_dereq_,module,exports){
+},{"console":8,"loglevel":14}],37:[function(_dereq_,module,exports){
 module.exports = [
   {
     "destination" :"ipad",
@@ -9274,7 +9167,7 @@ module.exports = [
   }
 ];
 
-},{}],40:[function(_dereq_,module,exports){
+},{}],38:[function(_dereq_,module,exports){
 module.exports = function(url) {
   var qmap = {};
   var i = url.split("?");
@@ -9290,7 +9183,7 @@ module.exports = function(url) {
   }
   return qmap;
 };
-},{}],41:[function(_dereq_,module,exports){
+},{}],39:[function(_dereq_,module,exports){
 var constants = _dereq_("./constants");
 
 module.exports = function() {
@@ -9303,7 +9196,7 @@ module.exports = function() {
   return type + "/" + constants.sdk_version;
 };
 
-},{"./constants":27}],42:[function(_dereq_,module,exports){
+},{"./constants":26}],40:[function(_dereq_,module,exports){
 var rsa = _dereq_("../../../libs/rsa");
 var SecureRandom = rsa.SecureRandom;
 var byte2Hex = rsa.byte2Hex;
@@ -9345,7 +9238,7 @@ var aes_keygen = function(p, s, f){
 }
 
 module.exports = aes_keygen;
-},{"../../../libs/rsa":4}],43:[function(_dereq_,module,exports){
+},{"../../../libs/rsa":4}],41:[function(_dereq_,module,exports){
 var CryptoJS = _dereq_("../../../libs/generated/crypto");
 
 var encrypt = function(p, s, f){
@@ -9386,7 +9279,7 @@ module.exports = {
   encrypt: encrypt,
   decrypt: decrypt
 }
-},{"../../../libs/generated/crypto":1}],44:[function(_dereq_,module,exports){
+},{"../../../libs/generated/crypto":1}],42:[function(_dereq_,module,exports){
 var CryptoJS = _dereq_("../../../libs/generated/crypto");
 
 
@@ -9411,7 +9304,7 @@ var hash = function(p, s, f){
 }
 
 module.exports = hash;
-},{"../../../libs/generated/crypto":1}],45:[function(_dereq_,module,exports){
+},{"../../../libs/generated/crypto":1}],43:[function(_dereq_,module,exports){
 var rsa = _dereq_("../../../libs/rsa");
 var RSAKey = rsa.RSAKey;
 
@@ -9436,7 +9329,7 @@ var encrypt = function(p, s, f){
 module.exports = {
   encrypt: encrypt
 }
-},{"../../../libs/rsa":4}],46:[function(_dereq_,module,exports){
+},{"../../../libs/rsa":4}],44:[function(_dereq_,module,exports){
 var JSON = _dereq_("JSON");
 var actAPI = _dereq_("./api_act");
 var cloudAPI = _dereq_("./api_cloud");
@@ -10744,7 +10637,58 @@ module.exports = {
   doSync: self.doSync,
   forceSync: self.forceSync
 };
-},{"../../libs/generated/crypto":1,"../../libs/generated/lawnchair":2,"./api_act":19,"./api_cloud":21,"JSON":3}],47:[function(_dereq_,module,exports){
+},{"../../libs/generated/crypto":1,"../../libs/generated/lawnchair":2,"./api_act":19,"./api_cloud":21,"JSON":3}],"./modules/appProps":[function(_dereq_,module,exports){
+module.exports=_dereq_('zDENqi');
+},{}],"zDENqi":[function(_dereq_,module,exports){
+var consts = _dereq_("../constants");
+var ajax = _dereq_("../ajax");
+var logger = _dereq_("../logger");
+var qs = _dereq_("../queryMap");
+
+
+var app_props = null;
+
+var load = function(cb) {
+ /*
+   We use eval here because Titanium also does require to include third party scripts.
+   It bypasses browserify's require, but still triggers when in a Titanium app
+   */
+  app_props = eval("require(\"fhconfig\")");
+  return cb(null, app_props);
+};
+
+var setAppProps = function(props) {
+  app_props = props;
+};
+
+var getAppProps = function() {
+  return app_props;
+};
+
+module.exports = {
+  load: load,
+  getAppProps: getAppProps,
+  setAppProps: setAppProps
+};
+
+},{"../ajax":18,"../constants":26,"../logger":36,"../queryMap":38}],"./cookies":[function(_dereq_,module,exports){
+module.exports=_dereq_('RdeKcl');
+},{}],"RdeKcl":[function(_dereq_,module,exports){
+module.exports = {
+  readCookieValue  : function (cookie_name) {
+    if (typeof Titanium !== 'undefined'){
+      return Titanium.App.Properties.getObject(cookie_name)
+    }
+    return null;
+  },
+
+  createCookie : function (cookie_name, cookie_value) {
+    if (typeof Titanium !== 'undefined'){
+      return Titanium.App.Properties.setObject(cookie_name, cookie_value)
+    }
+  }
+};
+},{}],49:[function(_dereq_,module,exports){
 module.exports = {
   createUUID : function () {
     //from http://stackoverflow.com/questions/105034/how-to-create-a-guid-uuid-in-javascript
@@ -10761,7 +10705,7 @@ module.exports = {
   }
 };
 
-},{}],48:[function(_dereq_,module,exports){
+},{}],50:[function(_dereq_,module,exports){
 var initializer = _dereq_("./initializer");
 var events = _dereq_("./events");
 var CloudHost = _dereq_("./hosts");
@@ -10854,6 +10798,6 @@ module.exports = {
   getInitError: getInitError,
   reset: reset
 }
-},{"./appProps":25,"./constants":27,"./events":30,"./hosts":34,"./initializer":35,"./logger":38}]},{},[16])
+},{"./appProps":"zDENqi","./constants":26,"./events":28,"./hosts":32,"./initializer":33,"./logger":36}]},{},[16])
 (16)
 });
