@@ -1,3 +1,15 @@
+if (typeof Titanium !== 'undefined'){
+  if (typeof window === 'undefined'){
+    window = { top : {}, location : { protocol : '', href : '' } };
+  }
+  if (typeof document === 'undefined'){
+    document = { location : { href : '', search : '' } };
+  }
+  if (typeof navigator === 'undefined'){
+    navigator = { userAgent : 'Titanium' };
+  }
+}
+
 !function(e){if("object"==typeof exports)module.exports=e();else if("function"==typeof define&&define.amd)define(e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.feedhenry=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 (function (global){
 ;__browserify_shim_require__=_dereq_;(function browserifyShim(module, exports, _dereq_, define, browserify_shim__define__module__export__) {
@@ -3707,7 +3719,12 @@ Lawnchair.adapter('window-name', (function() {
 // not chainable: valid, keys
 //
 Lawnchair.adapter('dom', (function() {
-  var storage = window.localStorage
+  var storage = null;
+  try{
+    storage = window.localStorage;
+  }catch(e){
+
+  }
   // the indexer is an encapsulation of the helpers needed to keep an ordered index of the keys
   var indexer = function(name) {
     return {
@@ -3910,19 +3927,6 @@ Lawnchair.adapter('webkit-sqlite', (function() {
       return new Date()
     } // FIXME need to use better date fn
     // not entirely sure if this is needed...
-  if (!Function.prototype.bind) {
-    Function.prototype.bind = function(obj) {
-      var slice = [].slice,
-        args = slice.call(arguments, 1),
-        self = this,
-        nop = function() {}, bound = function() {
-          return self.apply(this instanceof nop ? this : (obj || {}), args.concat(slice.call(arguments)))
-        }
-      nop.prototype = self.prototype
-      bound.prototype = new nop()
-      return bound
-    }
-  }
 
   // public methods
   return {
@@ -4224,6 +4228,11 @@ Lawnchair.adapter('html5-filesystem', (function(global){
       var error = function(e) { fail(e); if ( callback ) me.fn( me.name, callback ).call( me, me ); };
       var size = options.size || 100*1024*1024;
       var name = this.name;
+      //disable file backup to icloud
+      me.backup = false;
+      if(typeof options.backup !== 'undefined'){
+        me.backup = options.backup;
+      }
 
       function requestFileSystem(amount) {
 //        console.log('in requestFileSystem');
@@ -4280,7 +4289,7 @@ Lawnchair.adapter('html5-filesystem', (function(global){
       obj.key = key;
       var error = function(e) { fail(e); if ( callback ) me.lambda( callback ).call( me ); };
       root( this, function( store ) {
-        store.getFile( key, {create:true}, function( file ) {
+        var writeContent = function(file, error){
           file.createWriter(function( writer ) {
             writer.onerror = error;
             writer.onwriteend = function() {
@@ -4297,6 +4306,18 @@ Lawnchair.adapter('html5-filesystem', (function(global){
             var writerContent = createBlobOrString(contentStr);
             writer.write(writerContent);
           }, error );
+        }
+        store.getFile( key, {create:true}, function( file ) {
+          if(typeof file.setMetadata === 'function' && (me.backup === false || me.backup === 'false')){
+            //set meta data on the file to make sure it won't be backed up by icloud
+            file.setMetadata(function(){
+              writeContent(file, error);
+            }, function(){
+              writeContent(file, error);
+            }, {'com.apple.MobileBackup': 1});
+          } else {
+            writeContent(file, error);
+          }
         }, error );
       });
       return this;
@@ -4429,6 +4450,224 @@ Lawnchair.adapter('html5-filesystem', (function(global){
     }
   };
 }(this)));
+Lawnchair.adapter('memory', (function(){
+
+    var data = {}
+
+    return {
+        valid: function() { return true },
+
+        init: function (options, callback) {
+            data[this.name] = data[this.name] || {index:[],store:{}}
+            this.index = data[this.name].index
+            this.store = data[this.name].store
+            var cb = this.fn(this.name, callback)
+            if (cb) cb.call(this, this)
+            return this
+        },
+
+        keys: function (callback) {
+            this.fn('keys', callback).call(this, this.index)
+            return this
+        },
+
+        save: function(obj, cb) {
+            var key = obj.key || this.uuid()
+            
+            this.exists(key, function(exists) {
+                if (!exists) {
+                    if (obj.key) delete obj.key
+                    this.index.push(key)
+                }
+
+                this.store[key] = obj
+                
+                if (cb) {
+                    obj.key = key
+                    this.lambda(cb).call(this, obj)
+                }
+            })
+
+            return this
+        },
+
+        batch: function (objs, cb) {
+            var r = []
+            for (var i = 0, l = objs.length; i < l; i++) {
+                this.save(objs[i], function(record) {
+                    r.push(record)
+                })
+            }
+            if (cb) this.lambda(cb).call(this, r)
+            return this
+        },
+
+        get: function (keyOrArray, cb) {
+            var r;
+            if (this.isArray(keyOrArray)) {
+                r = []
+                for (var i = 0, l = keyOrArray.length; i < l; i++) {
+                    r.push(this.store[keyOrArray[i]])
+                }
+            } else {
+                r = this.store[keyOrArray]
+                if (r) r.key = keyOrArray
+            }
+            if (cb) this.lambda(cb).call(this, r)
+            return this 
+        },
+
+        exists: function (key, cb) {
+            this.lambda(cb).call(this, !!(this.store[key]))
+            return this
+        },
+
+        all: function (cb) {
+            var r = []
+            for (var i = 0, l = this.index.length; i < l; i++) {
+                var obj = this.store[this.index[i]]
+                obj.key = this.index[i]
+                r.push(obj)
+            }
+            this.fn(this.name, cb).call(this, r)
+            return this
+        },
+
+        remove: function (keyOrArray, cb) {
+            var del = this.isArray(keyOrArray) ? keyOrArray : [keyOrArray]
+            for (var i = 0, l = del.length; i < l; i++) {
+                var key = del[i].key ? del[i].key : del[i]
+                var where = this.indexOf(this.index, key)
+                if (where < 0) continue /* key not present */
+                delete this.store[key]
+                this.index.splice(where, 1)
+            }
+            if (cb) this.lambda(cb).call(this)
+            return this
+        },
+
+        nuke: function (cb) {
+            this.store = data[this.name].store = {}
+            this.index = data[this.name].index = []
+            if (cb) this.lambda(cb).call(this)
+            return this
+        }
+    }
+/////
+})());
+Lawnchair.adapter('titanium', (function(global){
+
+    return {
+        // boolean; true if the adapter is valid for the current environment
+        valid: function() {
+            return typeof Titanium !== 'undefined';
+        },
+
+        // constructor call and callback. 'name' is the most common option
+        init: function( options, callback ) {
+          if (callback){
+            return this.fn('init', callback).call(this)
+          }
+        },
+
+        // returns all the keys in the store
+        keys: function( callback ) {
+          if (callback) {
+            return this.fn('keys', callback).call(this, Titanium.App.Properties.listProperties());
+          }
+          return this;
+        },
+
+        // save an object
+        save: function( obj, callback ) {
+            var saveRes = Titanium.App.Properties.setObject(obj.key, obj);
+            if (callback) {
+              return this.fn('save', callback).call(this, saveRes);
+            }
+            return this;
+        },
+
+        // batch save array of objs
+        batch: function( objs, callback ) {
+            var me = this;
+            var saved = [];
+            for ( var i = 0, il = objs.length; i < il; i++ ) {
+                me.save( objs[i], function( obj ) {
+                    saved.push( obj );
+                    if ( saved.length === il && callback ) {
+                        me.lambda( callback ).call( me, saved );
+                    }
+                });
+            }
+            return this;
+        },
+
+        // retrieve obj (or array of objs) and apply callback to each
+        get: function( key /* or array */, callback ) {
+            var me = this;
+            if ( this.isArray( key ) ) {
+                var values = [];
+                for ( var i = 0, il = key.length; i < il; i++ ) {
+                    me.get( key[i], function( result ) {
+                        if ( result ) values.push( result );
+                        if ( values.length === il && callback ) {
+                            me.lambda( callback ).call( me, values );
+                        }
+                    });
+                }
+            } else {
+                return this.fn('init', callback).call(this, Titanium.App.Properties.getObject(key));
+            }
+            return this;
+        },
+
+        // check if an obj exists in the collection
+        exists: function( key, callback ) {
+            if (callback){
+              if (Titanium.App.Properties.getObject(key)){
+                return callback(this, true);
+              }else{
+                return callback(this, false);
+              }
+            }
+
+            return this;
+        },
+
+        // returns all the objs to the callback as an array
+        all: function( callback ) {
+            var me = this;
+            if ( callback ) {
+                this.keys(function( keys ) {
+                    if ( !keys.length ) {
+                        me.fn( me.name, callback ).call( me, [] );
+                    } else {
+                        me.get( keys, function( values ) {
+                            me.fn( me.name, callback ).call( me, values );
+                        });
+                    }
+                });
+            }
+            return this;
+        },
+
+        // remove a doc or collection of em
+        remove: function( key /* or object */, callback ) {
+            var me = this;
+            Titanium.App.Properties.removeProperty(key);
+            if (callback) {
+              return this.fn('remove', callback).call(this);
+            }
+            return this;
+        },
+
+        // destroy everything
+        nuke: function( callback ) {
+            // nah, lets not do that
+        }
+    };
+}(this)));
+
 ; browserify_shim__define__module__export__(typeof Lawnchair != "undefined" ? Lawnchair : window.Lawnchair);
 
 }).call(global, undefined, undefined, undefined, undefined, function defineExport(ex) { module.exports = ex; });
@@ -6084,14 +6323,486 @@ var objectKeys = Object.keys || function (obj) {
   return keys;
 };
 
-},{"util/":7}],6:[function(_dereq_,module,exports){
+},{"util/":11}],6:[function(_dereq_,module,exports){
+(function (global){
+/*global window, global*/
+var util = _dereq_("util")
+var assert = _dereq_("assert")
+
+var slice = Array.prototype.slice
+var console
+var times = {}
+
+if (typeof global !== "undefined" && global.console) {
+    console = global.console
+} else if (typeof window !== "undefined" && window.console) {
+    console = window.console
+} else {
+    console = {}
+}
+
+var functions = [
+    [log, "log"]
+    , [info, "info"]
+    , [warn, "warn"]
+    , [error, "error"]
+    , [time, "time"]
+    , [timeEnd, "timeEnd"]
+    , [trace, "trace"]
+    , [dir, "dir"]
+    , [assert, "assert"]
+]
+
+for (var i = 0; i < functions.length; i++) {
+    var tuple = functions[i]
+    var f = tuple[0]
+    var name = tuple[1]
+
+    if (!console[name]) {
+        console[name] = f
+    }
+}
+
+module.exports = console
+
+function log() {}
+
+function info() {
+    console.log.apply(console, arguments)
+}
+
+function warn() {
+    console.log.apply(console, arguments)
+}
+
+function error() {
+    console.warn.apply(console, arguments)
+}
+
+function time(label) {
+    times[label] = Date.now()
+}
+
+function timeEnd(label) {
+    var time = times[label]
+    if (!time) {
+        throw new Error("No such label: " + label)
+    }
+
+    var duration = Date.now() - time
+    console.log(label + ": " + duration + "ms")
+}
+
+function trace() {
+    var err = new Error()
+    err.name = "Trace"
+    err.message = util.format.apply(null, arguments)
+    console.error(err.stack)
+}
+
+function dir(object) {
+    console.log(util.inspect(object) + "\n")
+}
+
+function assert(expression) {
+    if (!expression) {
+        var arr = slice.call(arguments, 1)
+        assert.ok(false, util.format.apply(null, arr))
+    }
+}
+
+}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"assert":5,"util":11}],7:[function(_dereq_,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+function EventEmitter() {
+  this._events = this._events || {};
+  this._maxListeners = this._maxListeners || undefined;
+}
+module.exports = EventEmitter;
+
+// Backwards-compat with node 0.10.x
+EventEmitter.EventEmitter = EventEmitter;
+
+EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._maxListeners = undefined;
+
+// By default EventEmitters will print a warning if more than 10 listeners are
+// added to it. This is a useful default which helps finding memory leaks.
+EventEmitter.defaultMaxListeners = 10;
+
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!isNumber(n) || n < 0 || isNaN(n))
+    throw TypeError('n must be a positive number');
+  this._maxListeners = n;
+  return this;
+};
+
+EventEmitter.prototype.emit = function(type) {
+  var er, handler, len, args, i, listeners;
+
+  if (!this._events)
+    this._events = {};
+
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events.error ||
+        (isObject(this._events.error) && !this._events.error.length)) {
+      er = arguments[1];
+      if (er instanceof Error) {
+        throw er; // Unhandled 'error' event
+      }
+      throw TypeError('Uncaught, unspecified "error" event.');
+    }
+  }
+
+  handler = this._events[type];
+
+  if (isUndefined(handler))
+    return false;
+
+  if (isFunction(handler)) {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        len = arguments.length;
+        args = new Array(len - 1);
+        for (i = 1; i < len; i++)
+          args[i - 1] = arguments[i];
+        handler.apply(this, args);
+    }
+  } else if (isObject(handler)) {
+    len = arguments.length;
+    args = new Array(len - 1);
+    for (i = 1; i < len; i++)
+      args[i - 1] = arguments[i];
+
+    listeners = handler.slice();
+    len = listeners.length;
+    for (i = 0; i < len; i++)
+      listeners[i].apply(this, args);
+  }
+
+  return true;
+};
+
+EventEmitter.prototype.addListener = function(type, listener) {
+  var m;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events)
+    this._events = {};
+
+  // To avoid recursion in the case that type === "newListener"! Before
+  // adding it to the listeners, first emit "newListener".
+  if (this._events.newListener)
+    this.emit('newListener', type,
+              isFunction(listener.listener) ?
+              listener.listener : listener);
+
+  if (!this._events[type])
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  else if (isObject(this._events[type]))
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  else
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+
+  // Check for listener leak
+  if (isObject(this._events[type]) && !this._events[type].warned) {
+    var m;
+    if (!isUndefined(this._maxListeners)) {
+      m = this._maxListeners;
+    } else {
+      m = EventEmitter.defaultMaxListeners;
+    }
+
+    if (m && m > 0 && this._events[type].length > m) {
+      this._events[type].warned = true;
+      console.error('(node) warning: possible EventEmitter memory ' +
+                    'leak detected. %d listeners added. ' +
+                    'Use emitter.setMaxListeners() to increase limit.',
+                    this._events[type].length);
+      if (typeof console.trace === 'function') {
+        // not supported in IE 10
+        console.trace();
+      }
+    }
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  var fired = false;
+
+  function g() {
+    this.removeListener(type, g);
+
+    if (!fired) {
+      fired = true;
+      listener.apply(this, arguments);
+    }
+  }
+
+  g.listener = listener;
+  this.on(type, g);
+
+  return this;
+};
+
+// emits a 'removeListener' event iff the listener was removed
+EventEmitter.prototype.removeListener = function(type, listener) {
+  var list, position, length, i;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events || !this._events[type])
+    return this;
+
+  list = this._events[type];
+  length = list.length;
+  position = -1;
+
+  if (list === listener ||
+      (isFunction(list.listener) && list.listener === listener)) {
+    delete this._events[type];
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+
+  } else if (isObject(list)) {
+    for (i = length; i-- > 0;) {
+      if (list[i] === listener ||
+          (list[i].listener && list[i].listener === listener)) {
+        position = i;
+        break;
+      }
+    }
+
+    if (position < 0)
+      return this;
+
+    if (list.length === 1) {
+      list.length = 0;
+      delete this._events[type];
+    } else {
+      list.splice(position, 1);
+    }
+
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  var key, listeners;
+
+  if (!this._events)
+    return this;
+
+  // not listening for removeListener, no need to emit
+  if (!this._events.removeListener) {
+    if (arguments.length === 0)
+      this._events = {};
+    else if (this._events[type])
+      delete this._events[type];
+    return this;
+  }
+
+  // emit removeListener for all listeners on all events
+  if (arguments.length === 0) {
+    for (key in this._events) {
+      if (key === 'removeListener') continue;
+      this.removeAllListeners(key);
+    }
+    this.removeAllListeners('removeListener');
+    this._events = {};
+    return this;
+  }
+
+  listeners = this._events[type];
+
+  if (isFunction(listeners)) {
+    this.removeListener(type, listeners);
+  } else {
+    // LIFO order
+    while (listeners.length)
+      this.removeListener(type, listeners[listeners.length - 1]);
+  }
+  delete this._events[type];
+
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  var ret;
+  if (!this._events || !this._events[type])
+    ret = [];
+  else if (isFunction(this._events[type]))
+    ret = [this._events[type]];
+  else
+    ret = this._events[type].slice();
+  return ret;
+};
+
+EventEmitter.listenerCount = function(emitter, type) {
+  var ret;
+  if (!emitter._events || !emitter._events[type])
+    ret = 0;
+  else if (isFunction(emitter._events[type]))
+    ret = 1;
+  else
+    ret = emitter._events[type].length;
+  return ret;
+};
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+
+},{}],8:[function(_dereq_,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],9:[function(_dereq_,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            var source = ev.source;
+            if ((source === window || source === null) && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],10:[function(_dereq_,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],7:[function(_dereq_,module,exports){
+},{}],11:[function(_dereq_,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -6680,483 +7391,8 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-}).call(this,_dereq_("/Users/cianclarke/workspace/fh-js-sdk/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":6,"/Users/cianclarke/workspace/fh-js-sdk/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":11,"inherits":10}],8:[function(_dereq_,module,exports){
-(function (global){
-/*global window, global*/
-var util = _dereq_("util")
-var assert = _dereq_("assert")
-
-var slice = Array.prototype.slice
-var console
-var times = {}
-
-if (typeof global !== "undefined" && global.console) {
-    console = global.console
-} else if (typeof window !== "undefined" && window.console) {
-    console = window.console
-} else {
-    console = {}
-}
-
-var functions = [
-    [log, "log"]
-    , [info, "info"]
-    , [warn, "warn"]
-    , [error, "error"]
-    , [time, "time"]
-    , [timeEnd, "timeEnd"]
-    , [trace, "trace"]
-    , [dir, "dir"]
-    , [assert, "assert"]
-]
-
-for (var i = 0; i < functions.length; i++) {
-    var tuple = functions[i]
-    var f = tuple[0]
-    var name = tuple[1]
-
-    if (!console[name]) {
-        console[name] = f
-    }
-}
-
-module.exports = console
-
-function log() {}
-
-function info() {
-    console.log.apply(console, arguments)
-}
-
-function warn() {
-    console.log.apply(console, arguments)
-}
-
-function error() {
-    console.warn.apply(console, arguments)
-}
-
-function time(label) {
-    times[label] = Date.now()
-}
-
-function timeEnd(label) {
-    var time = times[label]
-    if (!time) {
-        throw new Error("No such label: " + label)
-    }
-
-    var duration = Date.now() - time
-    console.log(label + ": " + duration + "ms")
-}
-
-function trace() {
-    var err = new Error()
-    err.name = "Trace"
-    err.message = util.format.apply(null, arguments)
-    console.error(err.stack)
-}
-
-function dir(object) {
-    console.log(util.inspect(object) + "\n")
-}
-
-function assert(expression) {
-    if (!expression) {
-        var arr = slice.call(arguments, 1)
-        assert.ok(false, util.format.apply(null, arr))
-    }
-}
-
-}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"assert":5,"util":13}],9:[function(_dereq_,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-function EventEmitter() {
-  this._events = this._events || {};
-  this._maxListeners = this._maxListeners || undefined;
-}
-module.exports = EventEmitter;
-
-// Backwards-compat with node 0.10.x
-EventEmitter.EventEmitter = EventEmitter;
-
-EventEmitter.prototype._events = undefined;
-EventEmitter.prototype._maxListeners = undefined;
-
-// By default EventEmitters will print a warning if more than 10 listeners are
-// added to it. This is a useful default which helps finding memory leaks.
-EventEmitter.defaultMaxListeners = 10;
-
-// Obviously not all Emitters should be limited to 10. This function allows
-// that to be increased. Set to zero for unlimited.
-EventEmitter.prototype.setMaxListeners = function(n) {
-  if (!isNumber(n) || n < 0 || isNaN(n))
-    throw TypeError('n must be a positive number');
-  this._maxListeners = n;
-  return this;
-};
-
-EventEmitter.prototype.emit = function(type) {
-  var er, handler, len, args, i, listeners;
-
-  if (!this._events)
-    this._events = {};
-
-  // If there is no 'error' event listener then throw.
-  if (type === 'error') {
-    if (!this._events.error ||
-        (isObject(this._events.error) && !this._events.error.length)) {
-      er = arguments[1];
-      if (er instanceof Error) {
-        throw er; // Unhandled 'error' event
-      } else {
-        throw TypeError('Uncaught, unspecified "error" event.');
-      }
-      return false;
-    }
-  }
-
-  handler = this._events[type];
-
-  if (isUndefined(handler))
-    return false;
-
-  if (isFunction(handler)) {
-    switch (arguments.length) {
-      // fast cases
-      case 1:
-        handler.call(this);
-        break;
-      case 2:
-        handler.call(this, arguments[1]);
-        break;
-      case 3:
-        handler.call(this, arguments[1], arguments[2]);
-        break;
-      // slower
-      default:
-        len = arguments.length;
-        args = new Array(len - 1);
-        for (i = 1; i < len; i++)
-          args[i - 1] = arguments[i];
-        handler.apply(this, args);
-    }
-  } else if (isObject(handler)) {
-    len = arguments.length;
-    args = new Array(len - 1);
-    for (i = 1; i < len; i++)
-      args[i - 1] = arguments[i];
-
-    listeners = handler.slice();
-    len = listeners.length;
-    for (i = 0; i < len; i++)
-      listeners[i].apply(this, args);
-  }
-
-  return true;
-};
-
-EventEmitter.prototype.addListener = function(type, listener) {
-  var m;
-
-  if (!isFunction(listener))
-    throw TypeError('listener must be a function');
-
-  if (!this._events)
-    this._events = {};
-
-  // To avoid recursion in the case that type === "newListener"! Before
-  // adding it to the listeners, first emit "newListener".
-  if (this._events.newListener)
-    this.emit('newListener', type,
-              isFunction(listener.listener) ?
-              listener.listener : listener);
-
-  if (!this._events[type])
-    // Optimize the case of one listener. Don't need the extra array object.
-    this._events[type] = listener;
-  else if (isObject(this._events[type]))
-    // If we've already got an array, just append.
-    this._events[type].push(listener);
-  else
-    // Adding the second element, need to change to array.
-    this._events[type] = [this._events[type], listener];
-
-  // Check for listener leak
-  if (isObject(this._events[type]) && !this._events[type].warned) {
-    var m;
-    if (!isUndefined(this._maxListeners)) {
-      m = this._maxListeners;
-    } else {
-      m = EventEmitter.defaultMaxListeners;
-    }
-
-    if (m && m > 0 && this._events[type].length > m) {
-      this._events[type].warned = true;
-      console.error('(node) warning: possible EventEmitter memory ' +
-                    'leak detected. %d listeners added. ' +
-                    'Use emitter.setMaxListeners() to increase limit.',
-                    this._events[type].length);
-      console.trace();
-    }
-  }
-
-  return this;
-};
-
-EventEmitter.prototype.on = EventEmitter.prototype.addListener;
-
-EventEmitter.prototype.once = function(type, listener) {
-  if (!isFunction(listener))
-    throw TypeError('listener must be a function');
-
-  var fired = false;
-
-  function g() {
-    this.removeListener(type, g);
-
-    if (!fired) {
-      fired = true;
-      listener.apply(this, arguments);
-    }
-  }
-
-  g.listener = listener;
-  this.on(type, g);
-
-  return this;
-};
-
-// emits a 'removeListener' event iff the listener was removed
-EventEmitter.prototype.removeListener = function(type, listener) {
-  var list, position, length, i;
-
-  if (!isFunction(listener))
-    throw TypeError('listener must be a function');
-
-  if (!this._events || !this._events[type])
-    return this;
-
-  list = this._events[type];
-  length = list.length;
-  position = -1;
-
-  if (list === listener ||
-      (isFunction(list.listener) && list.listener === listener)) {
-    delete this._events[type];
-    if (this._events.removeListener)
-      this.emit('removeListener', type, listener);
-
-  } else if (isObject(list)) {
-    for (i = length; i-- > 0;) {
-      if (list[i] === listener ||
-          (list[i].listener && list[i].listener === listener)) {
-        position = i;
-        break;
-      }
-    }
-
-    if (position < 0)
-      return this;
-
-    if (list.length === 1) {
-      list.length = 0;
-      delete this._events[type];
-    } else {
-      list.splice(position, 1);
-    }
-
-    if (this._events.removeListener)
-      this.emit('removeListener', type, listener);
-  }
-
-  return this;
-};
-
-EventEmitter.prototype.removeAllListeners = function(type) {
-  var key, listeners;
-
-  if (!this._events)
-    return this;
-
-  // not listening for removeListener, no need to emit
-  if (!this._events.removeListener) {
-    if (arguments.length === 0)
-      this._events = {};
-    else if (this._events[type])
-      delete this._events[type];
-    return this;
-  }
-
-  // emit removeListener for all listeners on all events
-  if (arguments.length === 0) {
-    for (key in this._events) {
-      if (key === 'removeListener') continue;
-      this.removeAllListeners(key);
-    }
-    this.removeAllListeners('removeListener');
-    this._events = {};
-    return this;
-  }
-
-  listeners = this._events[type];
-
-  if (isFunction(listeners)) {
-    this.removeListener(type, listeners);
-  } else {
-    // LIFO order
-    while (listeners.length)
-      this.removeListener(type, listeners[listeners.length - 1]);
-  }
-  delete this._events[type];
-
-  return this;
-};
-
-EventEmitter.prototype.listeners = function(type) {
-  var ret;
-  if (!this._events || !this._events[type])
-    ret = [];
-  else if (isFunction(this._events[type]))
-    ret = [this._events[type]];
-  else
-    ret = this._events[type].slice();
-  return ret;
-};
-
-EventEmitter.listenerCount = function(emitter, type) {
-  var ret;
-  if (!emitter._events || !emitter._events[type])
-    ret = 0;
-  else if (isFunction(emitter._events[type]))
-    ret = 1;
-  else
-    ret = emitter._events[type].length;
-  return ret;
-};
-
-function isFunction(arg) {
-  return typeof arg === 'function';
-}
-
-function isNumber(arg) {
-  return typeof arg === 'number';
-}
-
-function isObject(arg) {
-  return typeof arg === 'object' && arg !== null;
-}
-
-function isUndefined(arg) {
-  return arg === void 0;
-}
-
-},{}],10:[function(_dereq_,module,exports){
-if (typeof Object.create === 'function') {
-  // implementation from standard node.js 'util' module
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
-  };
-} else {
-  // old school shim for old browsers
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
-  }
-}
-
-},{}],11:[function(_dereq_,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-
-process.nextTick = (function () {
-    var canSetImmediate = typeof window !== 'undefined'
-    && window.setImmediate;
-    var canPost = typeof window !== 'undefined'
-    && window.postMessage && window.addEventListener
-    ;
-
-    if (canSetImmediate) {
-        return function (f) { return window.setImmediate(f) };
-    }
-
-    if (canPost) {
-        var queue = [];
-        window.addEventListener('message', function (ev) {
-            var source = ev.source;
-            if ((source === window || source === null) && ev.data === 'process-tick') {
-                ev.stopPropagation();
-                if (queue.length > 0) {
-                    var fn = queue.shift();
-                    fn();
-                }
-            }
-        }, true);
-
-        return function nextTick(fn) {
-            queue.push(fn);
-            window.postMessage('process-tick', '*');
-        };
-    }
-
-    return function nextTick(fn) {
-        setTimeout(fn, 0);
-    };
-})();
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-}
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-
-},{}],12:[function(_dereq_,module,exports){
-module.exports=_dereq_(6)
-},{}],13:[function(_dereq_,module,exports){
-module.exports=_dereq_(7)
-},{"./support/isBuffer":12,"/Users/cianclarke/workspace/fh-js-sdk/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":11,"inherits":10}],14:[function(_dereq_,module,exports){
+}).call(this,_dereq_("/mnt/src/fh-js-sdk/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":10,"/mnt/src/fh-js-sdk/node_modules/browserify/node_modules/insert-module-globals/node_modules/process/browser.js":9,"inherits":8}],12:[function(_dereq_,module,exports){
 /*
  * loglevel - https://github.com/pimterry/loglevel
  *
@@ -7355,7 +7591,7 @@ module.exports=_dereq_(7)
     }));
 })();
 
-},{}],15:[function(_dereq_,module,exports){
+},{}],13:[function(_dereq_,module,exports){
 var toString = Object.prototype.toString
 
 module.exports = function(val){
@@ -7386,8 +7622,9 @@ module.exports = function(val){
   return typeof val
 }
 
-},{}],16:[function(_dereq_,module,exports){
+},{}],14:[function(_dereq_,module,exports){
 var constants = _dereq_("./modules/constants");
+var events = _dereq_("./modules/events");
 var logger = _dereq_("./modules/logger");
 var ajax = _dereq_("./modules/ajax");
 var events = _dereq_("./modules/events");
@@ -7416,7 +7653,7 @@ var addListener = function(type, listener){
     } else if(cloud.getInitError()){
       listener(cloud.getInitError());
     }
-  } 
+  }
 };
 
 var once = function(type, listener){
@@ -7456,6 +7693,7 @@ fh.sync = api_sync;
 fh.ajax = fh.__ajax = ajax;
 fh.mbaas = api_mbaas;
 fh._getDeviceId = device.getDeviceId;
+fh.fh_timeout = 60000; //keep backward compatible
 
 fh.getCloudURL = function(){
   return cloud.getCloudHostUrl();
@@ -7485,6 +7723,19 @@ fh.on(constants.INIT_EVENT, function(err, host){
   }
 });
 
+//keep backward compatibility
+fh.on(constants.INTERNAL_CONFIG_LOADED_EVENT, function(err, host){
+  if(err){
+    fh.app_props = {};
+  } else {
+    fh.app_props = appProps.getAppProps();
+  }
+
+  // Emit config loaded event - appprops set at this point
+  // V2 legacy SDK uses this to know when to fire $fh.ready (i.e. appprops is now set)
+  events.emit(constants.CONFIG_LOADED_EVENT, null);
+});
+
 //for test
 fh.reset = cloud.reset;
 //we should really stop polluting global name space. Ideally we should ask browserify to use "$fh" when umd-fy the module. However, "$" is not allowed as the standard module name.
@@ -7497,7 +7748,7 @@ module.exports = fh;
 
 
 
-},{"./modules/ajax":18,"./modules/api_act":19,"./modules/api_auth":20,"./modules/api_cloud":21,"./modules/api_hash":22,"./modules/api_mbaas":23,"./modules/api_sec":24,"./modules/appProps":25,"./modules/constants":27,"./modules/device":29,"./modules/events":30,"./modules/fhparams":31,"./modules/logger":38,"./modules/sync-cli":46,"./modules/waitForCloud":48}],17:[function(_dereq_,module,exports){
+},{"./modules/ajax":16,"./modules/api_act":17,"./modules/api_auth":18,"./modules/api_cloud":19,"./modules/api_hash":20,"./modules/api_mbaas":21,"./modules/api_sec":22,"./modules/appProps":"zDENqi","./modules/constants":24,"./modules/device":25,"./modules/events":26,"./modules/fhparams":27,"./modules/logger":33,"./modules/sync-cli":41,"./modules/waitForCloud":47}],15:[function(_dereq_,module,exports){
 var XDomainRequestWrapper = function(xdr){
   this.xdr = xdr;
   this.isWrapper = true;
@@ -7562,20 +7813,19 @@ XDomainRequestWrapper.prototype.getResponseHeader = function(n){
 
 module.exports = XDomainRequestWrapper;
 
-},{}],18:[function(_dereq_,module,exports){
-//a shameless copy from https://github.com/ForbesLindesay/ajax/blob/master/index.js. 
+},{}],16:[function(_dereq_,module,exports){
+//a shameless copy from https://github.com/ForbesLindesay/ajax/blob/master/index.js.
 //it has the same methods and config options as jQuery/zeptojs but very light weight. see http://api.jquery.com/jQuery.ajax/
 //a few small changes are made for supporting IE 8 and other features:
 //1. use getXhr function to replace the default XMLHttpRequest implementation for supporting IE8
 //2. Integrate with events emitter. So to subscribe ajax events, you can do $fh.on("ajaxStart", handler). See http://api.jquery.com/Ajax_Events/ for full list of events
-//3. allow passing xhr factory method through options: e.g. $fh.ajax({xhr: function(){/*own implementation of xhr*/}}); 
+//3. allow passing xhr factory method through options: e.g. $fh.ajax({xhr: function(){/*own implementation of xhr*/}});
 //4. Use fh_timeout value as the default timeout
 //5. an extra option called "tryJSONP" to allow try the same call with JSONP if normal CORS failed - should only be used internally
 //6. for jsonp, allow to specify the callback query param name using the "jsonp" option
 
 var eventsHandler = _dereq_("./events");
 var XDomainRequestWrapper = _dereq_("./XDomainRequestWrapper");
-var consts = _dereq_("./constants");
 var logger = _dereq_("./logger");
 
 var type
@@ -7600,13 +7850,19 @@ var jsonpID = 0,
 
 var ajax = module.exports = function (options) {
   var settings = extend({}, options || {})
+  //keep backward compatibility
+  if(window && window.$fh && typeof window.$fh.fh_timeout === "number"){
+    ajax.settings.timeout = window.$fh.fh_timeout;
+  }
+
   for (key in ajax.settings)
     if (settings[key] === undefined) settings[key] = ajax.settings[key]
 
   ajaxStart(settings)
 
-  if (!settings.crossDomain) settings.crossDomain = /^([\w-]+:)?\/\/([^\/]+)/.test(settings.url) &&
-    RegExp.$2 != window.location.host
+  if (!settings.crossDomain) {
+    settings.crossDomain = /^([\w-]+:)?\/\/([^\/]+)/.test(settings.url) && (RegExp.$1 != window.location.protocol || RegExp.$2 != window.location.host)
+  } 
 
   var dataType = settings.dataType,
     hasPlaceholder = /=\?/.test(settings.url)
@@ -7624,7 +7880,7 @@ var ajax = module.exports = function (options) {
     baseHeaders = {},
     protocol = /^([\w-]+:)\/\//.test(settings.url) ? RegExp.$1 : window.location.protocol,
     xhr = settings.xhr(settings.crossDomain),
-    abortTimeout
+    abortTimeout = null;
 
   if (!settings.crossDomain) baseHeaders['X-Requested-With'] = 'XMLHttpRequest'
   if (mime) {
@@ -7636,9 +7892,21 @@ var ajax = module.exports = function (options) {
     baseHeaders['Content-Type'] = (settings.contentType || 'application/x-www-form-urlencoded')
   settings.headers = extend(baseHeaders, settings.headers || {})
 
+  if (typeof Titanium !== 'undefined') {
+    xhr.onerror  = function(){
+      if (!abortTimeout){
+        return;
+      }
+      clearTimeout(abortTimeout);
+      ajaxError(null, 'error', xhr, settings);
+    };
+  }
+
   xhr.onreadystatechange = function () {
+
     if (xhr.readyState == 4) {
       clearTimeout(abortTimeout)
+      abortTimeout = undefined;
       var result, error = false
       if(settings.tryJSONP){
         //check if the request has fail. In some cases, we may want to try jsonp as well. Again, FH only...
@@ -7779,6 +8047,7 @@ ajax.JSONP = function (options) {
 
   window[callbackName] = function (data) {
     clearTimeout(abortTimeout)
+    abortTimeout = undefined;
     //todo: remove script
     //$(script).remove()
     delete window[callbackName]
@@ -7814,10 +8083,19 @@ function getXhr(crossDomain){
   if(window.XMLHttpRequest){
     xhr = new XMLHttpRequest();
   }
-  //for IE8
-  if(isIE() && (crossDomain === true) && typeof window.XDomainRequest !== "undefined"){
+  //for IE8 only. Need to make sure it's not used when running inside Cordova.
+  if(isIE() && (crossDomain === true) && typeof window.XDomainRequest !== "undefined" && typeof window.cordova === "undefined"){
     xhr = new XDomainRequestWrapper(new XDomainRequest());
   }
+  // For Titanium SDK
+  if (typeof Titanium !== 'undefined'){
+    var params = {};
+    if(ajax.settings && ajax.settings.timeout){
+      params.timeout = ajax.settings.timeout;
+    }
+    xhr = Titanium.Network.createHTTPClient(params);
+  }
+
   return xhr;
 }
 
@@ -7847,9 +8125,7 @@ ajax.settings = {
     text: 'text/plain'
   },
   // Whether the request is to another domain
-  crossDomain: false,
-  // Default timeout
-  timeout: consts.fh_timeout
+  crossDomain: false
 }
 
 function mimeToDataType(mime) {
@@ -7938,13 +8214,15 @@ function extend(target) {
   })
   return target
 }
-},{"./XDomainRequestWrapper":17,"./constants":27,"./events":30,"./logger":38,"type-of":15}],19:[function(_dereq_,module,exports){
+
+},{"./XDomainRequestWrapper":15,"./events":26,"./logger":33,"type-of":13}],17:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
 var ajax = _dereq_("./ajax");
 var JSON = _dereq_("JSON");
 var handleError = _dereq_("./handleError");
+var appProps = _dereq_("./appProps");
 
 function doActCall(opts, success, fail){
   var cloud_host = cloud.getCloudHost();
@@ -7953,12 +8231,12 @@ function doActCall(opts, success, fail){
   params = fhparams.addFHParams(params);
   return ajax({
     "url": url,
-    "tryJSONP": true,
+    "tryJSONP": typeof Titanium === 'undefined',
     "type": "POST",
     "dataType": "json",
     "data": JSON.stringify(params),
     "contentType": "application/json",
-    "timeout": opts.timeout,
+    "timeout": opts.timeout || appProps.timeout,
     "success": success,
     "error": function(req, statusText, error){
       return handleError(fail, req, statusText, error);
@@ -7987,8 +8265,9 @@ module.exports = function(opts, success, fail){
     }
   })
 }
-},{"./ajax":18,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],20:[function(_dereq_,module,exports){
-var logger =_dereq_("./logger");
+
+},{"./ajax":16,"./appProps":"zDENqi","./fhparams":27,"./handleError":28,"./logger":33,"./waitForCloud":47,"JSON":3}],18:[function(_dereq_,module,exports){
+var logger = _dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
 var ajax = _dereq_("./ajax");
@@ -7999,9 +8278,9 @@ var constants = _dereq_("./constants");
 var checkAuth = _dereq_("./checkAuth");
 var appProps = _dereq_("./appProps");
 
-module.exports = function(opts, success, fail){
-  if(!fail){
-    fail = function(msg, error){
+module.exports = function(opts, success, fail) {
+  if (!fail) {
+    fail = function(msg, error) {
       logger.debug(msg + ":" + JSON.stringify(error));
     };
   }
@@ -8012,8 +8291,8 @@ module.exports = function(opts, success, fail){
     return fail('auth_no_clientToken', {});
   }
 
-  cloud.ready(function(err, data){
-    if(err){
+  cloud.ready(function(err, data) {
+    if (err) {
       return fail(err.message, err);
     } else {
       var req = {};
@@ -8033,16 +8312,21 @@ module.exports = function(opts, success, fail){
       req.device = device.getDeviceId();
       var app_props = appProps.getAppProps();
       var path = app_props.host + constants.boxprefix + "admin/authpolicy/auth";
+
+      if (app_props.local) {
+        path = constants.boxprefix + "admin/authpolicy/auth";
+      }
+
       req = fhparams.addFHParams(req);
 
       ajax({
         "url": path,
         "type": "POST",
-        "tryJSONP": true,
+        "tryJSONP": typeof Titanium === 'undefined',
         "data": JSON.stringify(req),
         "dataType": "json",
         "contentType": "application/json",
-        "timeout" : opts.timeout || app_props.timeout || constants.fh_timeout,
+        "timeout": opts.timeout || app_props.timeout,
         success: function(res) {
           checkAuth.handleAuthResponse(endurl, res, success, fail);
         },
@@ -8053,26 +8337,36 @@ module.exports = function(opts, success, fail){
     }
   });
 }
-},{"./ajax":18,"./appProps":25,"./checkAuth":26,"./constants":27,"./device":29,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],21:[function(_dereq_,module,exports){
+
+},{"./ajax":16,"./appProps":"zDENqi","./checkAuth":23,"./constants":24,"./device":25,"./fhparams":27,"./handleError":28,"./logger":33,"./waitForCloud":47,"JSON":3}],19:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
 var ajax = _dereq_("./ajax");
 var JSON = _dereq_("JSON");
 var handleError = _dereq_("./handleError");
+var appProps = _dereq_("./appProps");
 
 function doCloudCall(opts, success, fail){
   var cloud_host = cloud.getCloudHost();
   var url = cloud_host.getCloudUrl(opts.path);
   var params = opts.data || {};
   params = fhparams.addFHParams(params);
+  var type = opts.method || "POST";
+  var data;
+  if ("POST" === type.toUpperCase()) {
+    data = JSON.stringify(params);
+  } else {
+    data = params;
+  }
+
   return ajax({
     "url": url,
-    "type": opts.method || "POST",
+    "type": type,
     "dataType": opts.dataType || "json",
-    "data": JSON.stringify(params),
+    "data": data,
     "contentType": opts.contentType || "application/json",
-    "timeout": opts.timeout,
+    "timeout": opts.timeout || appProps.timeout,
     "success": success,
     "error": function(req, statusText, error){
       return handleError(fail, req, statusText, error);
@@ -8097,7 +8391,8 @@ module.exports = function(opts, success, fail){
     }
   })
 }
-},{"./ajax":18,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],22:[function(_dereq_,module,exports){
+
+},{"./ajax":16,"./appProps":"zDENqi","./fhparams":27,"./handleError":28,"./logger":33,"./waitForCloud":47,"JSON":3}],20:[function(_dereq_,module,exports){
 var hashImpl = _dereq_("./security/hash");
 
 module.exports = function(p, s, f){
@@ -8109,7 +8404,7 @@ module.exports = function(p, s, f){
   params.params = p;
   hashImpl(params, s, f);
 };
-},{"./security/hash":44}],23:[function(_dereq_,module,exports){
+},{"./security/hash":39}],21:[function(_dereq_,module,exports){
 var logger =_dereq_("./logger");
 var cloud = _dereq_("./waitForCloud");
 var fhparams = _dereq_("./fhparams");
@@ -8117,7 +8412,7 @@ var ajax = _dereq_("./ajax");
 var JSON = _dereq_("JSON");
 var handleError = _dereq_("./handleError");
 var consts = _dereq_("./constants");
-
+var appProps = _dereq_("./appProps");
 
 module.exports = function(opts, success, fail){
   logger.debug("mbaas is called.");
@@ -8140,12 +8435,12 @@ module.exports = function(opts, success, fail){
       params = fhparams.addFHParams(params);
       return ajax({
         "url": url,
-        "tryJSONP": true,
+        "tryJSONP": typeof Titanium === 'undefined',
         "type": "POST",
         "dataType": "json",
         "data": JSON.stringify(params),
         "contentType": "application/json",
-        "timeout": opts.timeout || consts.fh_timeout,
+        "timeout": opts.timeout || appProps.timeout,
         "success": success,
         "error": function(req, statusText, error){
           return handleError(fail, req, statusText, error);
@@ -8155,7 +8450,7 @@ module.exports = function(opts, success, fail){
   });
 } 
 
-},{"./ajax":18,"./constants":27,"./fhparams":31,"./handleError":33,"./logger":38,"./waitForCloud":48,"JSON":3}],24:[function(_dereq_,module,exports){
+},{"./ajax":16,"./appProps":"zDENqi","./constants":24,"./fhparams":27,"./handleError":28,"./logger":33,"./waitForCloud":47,"JSON":3}],22:[function(_dereq_,module,exports){
 var keygen = _dereq_("./security/aes-keygen");
 var aes = _dereq_("./security/aes-node");
 var rsa = _dereq_("./security/rsa-node");
@@ -8199,78 +8494,7 @@ module.exports = function(p, s, f){
     }
   }
 }
-},{"./security/aes-keygen":42,"./security/aes-node":43,"./security/hash":44,"./security/rsa-node":45}],25:[function(_dereq_,module,exports){
-var consts = _dereq_("./constants");
-var ajax = _dereq_("./ajax");
-var logger = _dereq_("./logger");
-var qs = _dereq_("./queryMap");
-
-var app_props = null;
-
-var load = function(cb) {
-  var doc_url = document.location.href;
-  var url_params = qs(doc_url);
-  var local = (typeof url_params.url !== 'undefined');
-
-  // For local environments, no init needed
-  if (local) {
-    app_props = {};
-    app_props.local = true;
-    app_props.host = url_params.url;
-    app_props.appid = "000000000000000000000000";
-    app_props.appkey = "0000000000000000000000000000000000000000";
-    app_props.projectid = "000000000000000000000000";
-    app_props.connectiontag = "0.0.1";
-    app_props.loglevel = url_params.loglevel;
-    return cb(null, app_props);
-  }
-
-  var config_url = url_params.fhconfig || consts.config_js;
-  ajax({
-    url: config_url,
-    dataType: "json",
-    success: function(data) {
-      logger.debug("fhconfig = " + JSON.stringify(data));
-      //when load the config file on device, because file:// protocol is used, it will never call fail call back. The success callback will be called but the data value will be null.
-      if (null == data) {
-        //fh v2 only
-        if(window.fh_app_props){
-          app_props = window.fh_app_props;
-          return cb(null, window.fh_app_props);
-        }
-        return cb(new Error("app_config_missing"));
-      } else {
-        app_props = data;
-
-        cb(null, app_props);
-      }
-    },
-    error: function(req, statusText, error) {
-      //fh v2 only
-      if(window.fh_app_props){
-        app_props = window.fh_app_props;
-        return cb(null, window.fh_app_props);
-      }
-      logger.error(consts.config_js + " Not Found");
-      cb(new Error("app_config_missing"));
-    }
-  });
-};
-
-var setAppProps = function(props) {
-  app_props = props;
-};
-
-var getAppProps = function() {
-  return app_props;
-};
-
-module.exports = {
-  load: load,
-  getAppProps: getAppProps,
-  setAppProps: setAppProps
-};
-},{"./ajax":18,"./constants":27,"./logger":38,"./queryMap":40}],26:[function(_dereq_,module,exports){
+},{"./security/aes-keygen":37,"./security/aes-node":38,"./security/hash":39,"./security/rsa-node":40}],23:[function(_dereq_,module,exports){
 var logger = _dereq_("./logger");
 var queryMap = _dereq_("./queryMap");
 var JSON = _dereq_("JSON");
@@ -8368,7 +8592,7 @@ if (window.addEventListener) {
   window.addEventListener('load', function(){
     checkAuth(window.location.href);
   }, false); //W3C
-} else {
+} else if (window.attachEvent) {
   window.attachEvent('onload', function(){
     checkAuth(window.location.href);
   }); //IE
@@ -8378,40 +8602,17 @@ module.exports = {
   "handleAuthResponse": handleAuthResponse
 };
 
-},{"./fhparams":31,"./logger":38,"./queryMap":40,"JSON":3}],27:[function(_dereq_,module,exports){
+},{"./fhparams":27,"./logger":33,"./queryMap":35,"JSON":3}],24:[function(_dereq_,module,exports){
 module.exports = {
-  "fh_timeout": 20000,
   "boxprefix": "/box/srv/1.1/",
-  "sdk_version": "2.0.2-alpha",
+  "sdk_version": "2.5.1-BUILD-NUMBER",
   "config_js": "fhconfig.json",
-  "INIT_EVENT": "fhinit"
-};
-},{}],28:[function(_dereq_,module,exports){
-module.exports = {
-  readCookieValue  : function (cookie_name) {
-    var name_str = cookie_name + "=";
-    var cookies = document.cookie.split(";");
-    for (var i = 0; i < cookies.length; i++) {
-      var c = cookies[i];
-      while (c.charAt(0) === ' ') {
-        c = c.substring(1, c.length);
-      }
-      if (c.indexOf(name_str) === 0) {
-        return c.substring(name_str.length, c.length);
-      }
-    }
-    return null;
-  },
-
-  createCookie : function (cookie_name, cookie_value) {
-    var date = new Date();
-    date.setTime(date.getTime() + 36500 * 24 * 60 * 60 * 1000); //100 years
-    var expires = "; expires=" + date.toGMTString();
-    document.cookie = cookie_name + "=" + cookie_value + expires + "; path = /";
-  }
+  "INIT_EVENT": "fhinit",
+  "INTERNAL_CONFIG_LOADED_EVENT": "internalfhconfigloaded",
+  "CONFIG_LOADED_EVENT": "fhconfigloaded"
 };
 
-},{}],29:[function(_dereq_,module,exports){
+},{}],25:[function(_dereq_,module,exports){
 var cookies = _dereq_("./cookies");
 var uuidModule = _dereq_("./uuid");
 var logger = _dereq_("./logger");
@@ -8482,14 +8683,14 @@ module.exports = {
   }
 }
 
-},{"./cookies":28,"./logger":38,"./platformsMap":39,"./uuid":47}],30:[function(_dereq_,module,exports){
+},{"./cookies":"RdeKcl","./logger":33,"./platformsMap":34,"./uuid":46}],26:[function(_dereq_,module,exports){
 var EventEmitter = _dereq_('events').EventEmitter;
 
 var emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
 module.exports = emitter;
-},{"events":9}],31:[function(_dereq_,module,exports){
+},{"events":7}],27:[function(_dereq_,module,exports){
 var device = _dereq_("./device");
 var sdkversion = _dereq_("./sdkversion");
 var appProps = _dereq_("./appProps");
@@ -8559,28 +8760,7 @@ module.exports = {
   "setAuthSessionToken":setAuthSessionToken
 }
 
-},{"./appProps":25,"./device":29,"./logger":38,"./sdkversion":41}],32:[function(_dereq_,module,exports){
-module.exports = function(){
-  var path = null;
-  var scripts = document.getElementsByTagName('script');
-  var term = /(feedhenry.*?\.js)/;
-  for (var n = scripts.length-1; n>-1; n--) {
-      //trim query parameters
-      var src = scripts[n].src.replace(/\?.*$/, '');
-      //find feedhenry*.js file
-      var matches = src.match(term);
-      if(matches && matches.length === 2){
-        var fhjs = matches[1];
-        if (src.indexOf(fhjs) === (src.length - fhjs.length)) {
-          path = src.substring(0, src.length - fhjs.length);
-          break;
-        }
-      }
-  }
-  return path;
-};
-
-},{}],33:[function(_dereq_,module,exports){
+},{"./appProps":"zDENqi","./device":25,"./logger":33,"./sdkversion":36}],28:[function(_dereq_,module,exports){
 var JSON = _dereq_("JSON");
 
 module.exports = function(fail, req, resStatus, error){
@@ -8607,7 +8787,7 @@ module.exports = function(fail, req, resStatus, error){
   }
 };
 
-},{"JSON":3}],34:[function(_dereq_,module,exports){
+},{"JSON":3}],29:[function(_dereq_,module,exports){
 var constants = _dereq_("./constants");
 var appProps = _dereq_("./appProps");
 
@@ -8697,8 +8877,7 @@ CloudHost.prototype.getCloudUrl = function(path){
 
 
 module.exports = CloudHost;
-},{"./appProps":25,"./constants":27}],35:[function(_dereq_,module,exports){
-var findFHPath = _dereq_("./findFHPath");
+},{"./appProps":"zDENqi","./constants":24}],30:[function(_dereq_,module,exports){
 var loadScript = _dereq_("./loadScript");
 var Lawnchair = _dereq_('../../libs/generated/lawnchair');
 var lawnchairext = _dereq_('./lawnchair-ext');
@@ -8710,16 +8889,21 @@ var logger = _dereq_("./logger");
 var JSON = _dereq_("JSON");
 var hashFunc = _dereq_("./security/hash");
 var appProps = _dereq_("./appProps");
+var constants = _dereq_("./constants");
+var events = _dereq_("./events");
 
 var init = function(cb) {
   appProps.load(function(err, data) {
     if (err) return cb(err);
+
+    // Emit internal config loaded event - SDK will now set appprops
+    events.emit(constants.INTERNAL_CONFIG_LOADED_EVENT, null, data);
     return loadCloudProps(data, cb);
   });
-}
+};
 
 var loadCloudProps = function(app_props, callback) {
-  if(app_props.loglevel){
+  if (app_props.loglevel) {
     logger.setLevel(app_props.loglevel);
   }
   // If local - shortcircuit the init - just return the host
@@ -8754,55 +8938,35 @@ var loadCloudProps = function(app_props, callback) {
   //as dom, webkit-sqlite, localFileStorage, window-name
   var lcConf = {
     name: "fh_init_storage",
-    adapter: ["dom", "webkit-sqlite", "localFileStorage", "window-name"],
+    adapter: ["dom", "webkit-sqlite", "window-name"],
     fail: function(msg, err) {
       var error_message = 'read/save from/to local storage failed  msg:' + msg + ' err:' + err;
       return fail(error_message, {});
     }
   };
 
-  var storage = null;
-  try {
-    storage = new Lawnchair(lcConf, function() {});
-  } catch (e) {
-    //when dom adapter failed, Lawnchair throws an error
-    //shoudn't go in here anymore
-    lcConf.adapter = undefined;
-    storage = new Lawnchair(lcConf, function() {});
+  if (typeof Titanium !== "undefined") {
+    lcConf.adapter = ['titanium'];
   }
 
-  var path = app_props.host + consts.boxprefix + "app/init";
-
-  storage.get('fh_init', function(storage_res) {
-    var savedHost = null;
-    if (storage_res && storage_res.value !== null && typeof(storage_res.value) !== "undefined" && storage_res !== "") {
-      storage_res = typeof(storage_res) === "string" ? JSON.parse(storage_res) : storage_res;
-      storage_res.value = typeof(storage_res.value) === "string" ? JSON.parse(storage_res.value) : storage_res.value;
-      if (storage_res.value.init) {
-        app_props.init = storage_res.value.init;
-      } else {
-        //keep it backward compatible.
-        app_props.init = typeof(storage_res.value) === "string" ? JSON.parse(storage_res.value) : storage_res.value;
-      }
-      if (storage_res.value.hosts) {
-        savedHost = storage_res.value;
-      }
-    }
+  var doInit = function(path, appProps, savedHost, storage) {
     var data = fhparams.buildFHParams();
 
     ajax({
       "url": path,
       "type": "POST",
-      "tryJSONP": true,
+      "tryJSONP": typeof Titanium === 'undefined',
       "dataType": "json",
       "contentType": "application/json",
       "data": JSON.stringify(data),
-      "timeout": app_props.timeout || consts.fh_timeout,
+      "timeout": appProps.timeout,
       "success": function(initRes) {
-        storage.save({
-          key: "fh_init",
-          value: initRes
-        }, function() {});
+        if (storage) {
+          storage.save({
+            key: "fh_init",
+            value: initRes
+          }, function() {});
+        }
         if (callback) {
           callback(null, {
             cloud: initRes
@@ -8811,7 +8975,7 @@ var loadCloudProps = function(app_props, callback) {
       },
       "error": function(req, statusText, error) {
         var errormsg = "unknown";
-        if(req){
+        if (req) {
           errormsg = req.status + " - " + req.responseText;
         }
         logger.error("App init returned error : " + errormsg);
@@ -8836,14 +9000,42 @@ var loadCloudProps = function(app_props, callback) {
         }
       }
     });
-  });
+  };
+
+  var storage = null;
+  var path = app_props.host + consts.boxprefix + "app/init";
+  try {
+    storage = new Lawnchair(lcConf, function() {});
+    storage.get('fh_init', function(storage_res) {
+      var savedHost = null;
+      if (storage_res && storage_res.value !== null && typeof(storage_res.value) !== "undefined" && storage_res !== "") {
+        storage_res = typeof(storage_res) === "string" ? JSON.parse(storage_res) : storage_res;
+        storage_res.value = typeof(storage_res.value) === "string" ? JSON.parse(storage_res.value) : storage_res.value;
+        if (storage_res.value.init) {
+          app_props.init = storage_res.value.init;
+        } else {
+          //keep it backward compatible.
+          app_props.init = typeof(storage_res.value) === "string" ? JSON.parse(storage_res.value) : storage_res.value;
+        }
+        if (storage_res.value.hosts) {
+          savedHost = storage_res.value;
+        }
+      }
+
+      doInit(path, app_props, savedHost, storage);
+    });
+  } catch (e) {
+    //for whatever reason (e.g. localStorage is disabled) Lawnchair is failed to init, just do the init
+    doInit(path, app_props, null, null);
+  }
 };
 
 module.exports = {
   "init": init,
   "loadCloudProps": loadCloudProps
 }
-},{"../../libs/generated/lawnchair":2,"./ajax":18,"./appProps":25,"./constants":27,"./fhparams":31,"./findFHPath":32,"./handleError":33,"./lawnchair-ext":36,"./loadScript":37,"./logger":38,"./security/hash":44,"JSON":3}],36:[function(_dereq_,module,exports){
+
+},{"../../libs/generated/lawnchair":2,"./ajax":16,"./appProps":"zDENqi","./constants":24,"./events":26,"./fhparams":27,"./handleError":28,"./lawnchair-ext":31,"./loadScript":32,"./logger":33,"./security/hash":39,"JSON":3}],31:[function(_dereq_,module,exports){
 var Lawnchair = _dereq_('../../libs/generated/lawnchair');
 
 var fileStorageAdapter = function (app_props, hashFunc) {
@@ -9031,7 +9223,7 @@ var addAdapter = function(app_props, hashFunc){
 module.exports = {
   addAdapter: addAdapter
 }
-},{"../../libs/generated/lawnchair":2}],37:[function(_dereq_,module,exports){
+},{"../../libs/generated/lawnchair":2}],32:[function(_dereq_,module,exports){
 module.exports = function (url, callback) {
   var script;
   var head = document.head || document.getElementsByTagName("head")[0] || document.documentElement;
@@ -9054,7 +9246,7 @@ module.exports = function (url, callback) {
   head.insertBefore(script, head.firstChild);
 };
 
-},{}],38:[function(_dereq_,module,exports){
+},{}],33:[function(_dereq_,module,exports){
 var console = _dereq_('console');
 var log = _dereq_('loglevel');
 
@@ -9078,7 +9270,7 @@ log.setLevel('info');
  * Use either string or integer value
  */
 module.exports = log;
-},{"console":8,"loglevel":14}],39:[function(_dereq_,module,exports){
+},{"console":6,"loglevel":12}],34:[function(_dereq_,module,exports){
 module.exports = [
   {
     "destination" :"ipad",
@@ -9106,7 +9298,7 @@ module.exports = [
   }
 ];
 
-},{}],40:[function(_dereq_,module,exports){
+},{}],35:[function(_dereq_,module,exports){
 module.exports = function(url) {
   var qmap = {};
   var i = url.split("?");
@@ -9122,7 +9314,7 @@ module.exports = function(url) {
   }
   return qmap;
 };
-},{}],41:[function(_dereq_,module,exports){
+},{}],36:[function(_dereq_,module,exports){
 var constants = _dereq_("./constants");
 
 module.exports = function() {
@@ -9135,7 +9327,7 @@ module.exports = function() {
   return type + "/" + constants.sdk_version;
 };
 
-},{"./constants":27}],42:[function(_dereq_,module,exports){
+},{"./constants":24}],37:[function(_dereq_,module,exports){
 var rsa = _dereq_("../../../libs/rsa");
 var SecureRandom = rsa.SecureRandom;
 var byte2Hex = rsa.byte2Hex;
@@ -9177,7 +9369,7 @@ var aes_keygen = function(p, s, f){
 }
 
 module.exports = aes_keygen;
-},{"../../../libs/rsa":4}],43:[function(_dereq_,module,exports){
+},{"../../../libs/rsa":4}],38:[function(_dereq_,module,exports){
 var CryptoJS = _dereq_("../../../libs/generated/crypto");
 
 var encrypt = function(p, s, f){
@@ -9218,7 +9410,7 @@ module.exports = {
   encrypt: encrypt,
   decrypt: decrypt
 }
-},{"../../../libs/generated/crypto":1}],44:[function(_dereq_,module,exports){
+},{"../../../libs/generated/crypto":1}],39:[function(_dereq_,module,exports){
 var CryptoJS = _dereq_("../../../libs/generated/crypto");
 
 
@@ -9243,7 +9435,7 @@ var hash = function(p, s, f){
 }
 
 module.exports = hash;
-},{"../../../libs/generated/crypto":1}],45:[function(_dereq_,module,exports){
+},{"../../../libs/generated/crypto":1}],40:[function(_dereq_,module,exports){
 var rsa = _dereq_("../../../libs/rsa");
 var RSAKey = rsa.RSAKey;
 
@@ -9268,7 +9460,7 @@ var encrypt = function(p, s, f){
 module.exports = {
   encrypt: encrypt
 }
-},{"../../../libs/rsa":4}],46:[function(_dereq_,module,exports){
+},{"../../../libs/rsa":4}],41:[function(_dereq_,module,exports){
 var JSON = _dereq_("JSON");
 var actAPI = _dereq_("./api_act");
 var cloudAPI = _dereq_("./api_cloud");
@@ -9315,8 +9507,12 @@ var self = {
     // Is the background sync with the cloud currently active
     "storage_strategy" : "html5-filesystem",
     // Storage strategy to use for Lawnchair - supported strategies are 'html5-filesystem' and 'dom'
-    "file_system_quota" : 50 * 1024 * 1204
+    "file_system_quota" : 50 * 1024 * 1204,
     // Amount of space to request from the HTML5 filesystem API when running in browser
+    "has_custom_sync" : null,
+    //If the app has custom cloud sync function, it should be set to true. If set to false, the default mbaas sync implementation will be used. When set to null or undefined, 
+    //a check will be performed to determine which implementation to use
+    "icloud_backup" : false //ios only. If set to true, the file will be backed by icloud
   },
 
   notifications: {
@@ -9349,9 +9545,12 @@ var self = {
   // Initialise config to default values;
   config: undefined,
 
+  //TODO: deprecate this
   notify_callback: undefined,
 
-  hasCustomSync : undefined,
+  notify_callback_map : {},
+
+  init_is_called: false,
 
   // PUBLIC FUNCTION IMPLEMENTATIONS
   init: function(options) {
@@ -9362,15 +9561,25 @@ var self = {
       self.config[i] = options[i];
     }
 
-    self.datasetMonitor();
+    //prevent multiple monitors from created if init is called multiple times
+    if(!self.init_is_called){
+      self.init_is_called = true;
+      self.datasetMonitor();
+    }
   },
 
-  notify: function(callback) {
-    self.notify_callback = callback;
+  notify: function(datasetId, callback) {
+    if(arguments.length === 1 && typeof datasetId === 'function'){
+      self.notify_callback = datasetId;
+    } else {
+      self.notify_callback_map[datasetId] = callback;
+    }
   },
 
   manage: function(dataset_id, options, query_params, meta_data, cb) {
     self.consoleLog('manage - START');
+
+    var options = options || {};
 
     var doManage = function(dataset) {
       self.consoleLog('doManage dataset :: initialised = ' + dataset.initialised + " :: " + dataset_id + ' :: ' + JSON.stringify(options));
@@ -9383,7 +9592,9 @@ var self = {
       dataset.syncRunning = false;
       dataset.syncPending = true;
       dataset.initialised = true;
-      dataset.meta = {};
+      if(typeof dataset.meta === "undefined"){
+        dataset.meta = {};
+      }
 
       self.saveDataSet(dataset_id, function() {
 
@@ -9416,7 +9627,9 @@ var self = {
           // No dataset in memory or local storage - create a new one and put it in memory
           self.consoleLog('manage - Creating new dataset for id ' + dataset_id);
           var dataset = {};
+          dataset.data = {};
           dataset.pending = {};
+          dataset.meta = {};
           self.datasets[dataset_id] = dataset;
           doManage(dataset);
         });
@@ -9453,11 +9666,16 @@ var self = {
   },
 
   create: function(dataset_id, data, success, failure) {
+    if(data == null){
+      if(failure){
+        return failure("null_data");
+      }
+    }
     self.addPendingObj(dataset_id, null, data, "create", success, failure);
   },
 
   read: function(dataset_id, uid, success, failure) {
-      self.getDataSet(dataset_id, function(dataset) {
+    self.getDataSet(dataset_id, function(dataset) {
       var rec = dataset.data[uid];
       if (!rec) {
         failure("unknown_uid");
@@ -9549,7 +9767,8 @@ var self = {
 
   doNotify: function(dataset_id, uid, code, message) {
 
-    if( self.notify_callback ) {
+    if( self.notify_callback || self.notify_callback_map[dataset_id]) {
+      var notifyFunc = self.notify_callback_map[dataset_id] || self.notify_callback;
       if ( self.config['notify_' + code] ) {
         var notification = {
           "dataset_id" : dataset_id,
@@ -9559,7 +9778,7 @@ var self = {
         };
         // make sure user doesn't block
         setTimeout(function () {
-          self.notify_callback(notification);
+          notifyFunc(notification);
         }, 0);
       }
     }
@@ -9571,7 +9790,9 @@ var self = {
     if (dataset) {
       success(dataset);
     } else {
-      failure('unknown_dataset ' + dataset_id, dataset_id);
+      if(failure){
+        failure('unknown_dataset ' + dataset_id, dataset_id);
+      }
     }
   },
 
@@ -9581,7 +9802,9 @@ var self = {
     if (dataset) {
       success(dataset.query_params);
     } else {
-      failure('unknown_dataset ' + dataset_id, dataset_id);
+      if(failure){
+        failure('unknown_dataset ' + dataset_id, dataset_id);
+      }
     }
   },
 
@@ -9607,7 +9830,9 @@ var self = {
     if (dataset) {
       success(dataset.meta_data);
     } else {
-      failure('unknown_dataset ' + dataset_id, dataset_id);
+      if(failure){
+        failure('unknown_dataset ' + dataset_id, dataset_id);
+      }
     }
   },
 
@@ -9633,7 +9858,9 @@ var self = {
     if (dataset) {
       success(dataset.config);
     } else {
-      failure('unknown_dataset ' + dataset_id, dataset_id);
+      if(failure){
+        failure('unknown_dataset ' + dataset_id, dataset_id);
+      }
     }
   },
 
@@ -9781,7 +10008,9 @@ var self = {
         pendingObj.preHash = self.generateHash(rec.data);
         storePendingObject(pendingObj);
       }, function(code, msg) {
-        failure(code, msg);
+        if(failure){
+          failure(code, msg);
+        }
       });
     }
   },
@@ -9856,6 +10085,9 @@ var self = {
 
                 //Check to see if any delayed pending records can now be set to ready
                 self.updateDelayedFromNewData(dataset_id, dataSet, res);
+
+                //Check meta data as well to make sure it contains the correct info
+                self.updateMetaFromNewData(dataset_id, dataSet, res);
 
                 // Update the new dataset with details of any inflight updates which we have not received a response on
                 self.updateNewDataFromInFlight(dataset_id, dataSet, res);
@@ -9984,12 +10216,13 @@ var self = {
     for( var dataset_id in self.datasets ) {
       if( self.datasets.hasOwnProperty(dataset_id) ) {
         var dataset = self.datasets[dataset_id];
-
-        if( !dataset.syncRunning && dataset.config.sync_active) {
+        if(dataset && !dataset.syncRunning && (dataset.config.sync_active || dataset.syncForced)) {
           // Check to see if it is time for the sync loop to run again
           var lastSyncStart = dataset.syncLoopStart;
           var lastSyncCmp = dataset.syncLoopEnd;
-          if( lastSyncStart == null ) {
+          if(dataset.syncForced){
+            dataset.syncPending = true;
+          } else if( lastSyncStart == null ) {
             self.consoleLog(dataset_id +' - Performing initial sync');
             // Dataset has never been synced before - do initial sync
             dataset.syncPending = true;
@@ -10000,8 +10233,6 @@ var self = {
               // Time between sync loops has passed - do another sync
               dataset.syncPending = true;
             }
-          } else if( dataset.syncForced ) {
-            dataset.syncPending = true;
           }
 
           if( dataset.syncPending ) {
@@ -10019,38 +10250,49 @@ var self = {
   },
 
   checkHasCustomSync : function(dataset_id, cb) {
-    if(self.hasCustomSync != null) {
+    var dataset = self.datasets[dataset_id];
+    if(dataset && dataset.config){
+      self.consoleLog("dataset.config.has_custom_sync = " + dataset.config.has_custom_sync);
+      if(dataset.config.has_custom_sync != null) {
+        return cb();
+      }
+      self.consoleLog('starting check has custom sync');
+
+      actAPI({
+        'act' : dataset_id,
+        'req': {
+          'fn': 'sync'
+        }
+      }, function(res) {
+        //if the custom sync is defined in the cloud, this call should success.
+        //if failed, we think this the custom sync is not defined
+        self.consoleLog('check has_custom_sync - success - ', res);
+        dataset.config.has_custom_sync = true;
+        return cb();
+      }, function(msg,err) {
+        self.consoleLog('check has_custom_sync - failure - ', err);
+        if(err.status && err.status === 500){
+          //if we receive 500, it could be that there is an error occured due to missing parameters or similar,
+          //but the endpoint is defined.
+          self.consoleLog('check has_custom_sync - failed with 500, endpoint does exists');
+          dataset.config.has_custom_sync = true;
+        } else {
+          dataset.config.has_custom_sync = false;
+        }
+        return cb();
+      });
+    } else {
       return cb();
     }
-    self.consoleLog('starting check has custom sync');
-
-    actAPI({
-      'act' : dataset_id,
-      'req': {
-        'fn': 'sync'
-      }
-    }, function(res) {
-      //if the custom sync is defined in the cloud, this call should success.
-      //if failed, we think this the custom sync is not defined
-      self.consoleLog('checkHasCustomSync - success - ', res);
-      self.hasCustomSync = true;
-      return cb();
-    }, function(msg,err) {
-      self.consoleLog('checkHasCustomSync - failure - ', err);
-      if(err.status && err.status === 500){
-        //if we receive 500, it could be that there is an error occured due to missing parameters or similar,
-        //but the endpoint is defined.
-        self.consoleLog('checkHasCustomSync - failed with 500, endpoint does exists');
-        self.hasCustomSync = true;
-      } else {
-        self.hasCustomSync = false;
-      }
-      return cb();
-    });
   },
 
   doCloudCall: function(params, success, failure) {
-    if( self.hasCustomSync ) {
+    var hasCustomSync = false;
+    var dataset = self.datasets[params.dataset_id];
+    if(dataset && dataset.config){
+      hasCustomSync = dataset.config.has_custom_sync;
+    }
+    if( hasCustomSync == true ) {
       actAPI({
         'act' : params.dataset_id,
         'req' : params.req
@@ -10068,7 +10310,7 @@ var self = {
         success(res);
       }, function(msg, err) {
         failure(msg, err);
-      })
+      });
     }
   },
 
@@ -10081,17 +10323,21 @@ var self = {
     }, 500);
   },
 
-  saveDataSet: function (dataset_id, cb) {
-    var onFail =  function(msg, err) {
-      // save failed
-      var errMsg = 'save to local storage failed  msg:' + msg + ' err:' + err;
+  getStorageAdapter: function(dataset_id, isSave, cb){
+    var onFail = function(msg, err){
+      var errMsg = (isSave?'save to': 'load from' ) + ' local storage failed msg: ' + msg + ' err: ' + err;
       self.doNotify(dataset_id, null, self.notifications.CLIENT_STORAGE_FAILED, errMsg);
       self.consoleLog(errMsg);
     };
+    Lawnchair({fail:onFail, adapter: self.config.storage_strategy, size:self.config.file_system_quota, backup: self.config.icloud_backup}, function(){
+      return cb(null, this);
+    });
+  },
+
+  saveDataSet: function (dataset_id, cb) {
     self.getDataSet(dataset_id, function(dataset) {
-      // save dataset to local storage
-      Lawnchair({fail:onFail, adapter: self.config.storage_strategy, size:self.config.file_system_quota}, function (){
-        this.save({key:"dataset_" + dataset_id, val:dataset}, function(){
+      self.getStorageAdapter(dataset_id, true, function(err, storage){
+        storage.save({key:"dataset_" + dataset_id, val:dataset}, function(){
           //save success
           if(cb) return cb();
         });
@@ -10100,34 +10346,39 @@ var self = {
   },
 
   loadDataSet: function (dataset_id, success, failure) {
-    // load dataset from local storage
-    var onFail = function(msg, err) {
-      // load failed
-      var errMsg = 'load from local storage failed  msg:' + msg;
-      self.doNotify(dataset_id, null, self.notifications.CLIENT_STORAGE_FAILED, errMsg);
-      self.consoleLog(errMsg);
-    };
-
-        Lawnchair({fail:onFail, adapter: self.config.storage_strategy, size:self.config.file_system_quota},function (){       this.get( "dataset_" + dataset_id, function (data){
-         if (data && data.val !== null) {
-            var dataset = data.val;
-            if(typeof dataset === "string"){
-              dataset = JSON.parse(dataset);
-            }
-            // Datasets should not be auto initialised when loaded - the mange function should be called for each dataset
-            // the user wants sync
-            dataset.initialised = false;
-            self.datasets[dataset_id] = dataset; // TODO: do we need to handle binary data?
-            self.consoleLog('load from local storage success for dataset_id :' + dataset_id);
-            if(success) return success(dataset);
-          } else {
-            // no data yet, probably first time. failure calback should handle this
-            if(failure) return failure();
+    self.getStorageAdapter(dataset_id, false, function(err, storage){
+      storage.get( "dataset_" + dataset_id, function (data){
+        if (data && data.val) {
+          var dataset = data.val;
+          if(typeof dataset === "string"){
+            dataset = JSON.parse(dataset);
           }
-       });
+          // Datasets should not be auto initialised when loaded - the mange function should be called for each dataset
+          // the user wants sync
+          dataset.initialised = false;
+          self.datasets[dataset_id] = dataset; // TODO: do we need to handle binary data?
+          self.consoleLog('load from local storage success for dataset_id :' + dataset_id);
+          if(success) return success(dataset);
+        } else {
+          // no data yet, probably first time. failure calback should handle this
+          if(failure) return failure();
+        }
+      });
     });
   },
 
+  clearCache: function(dataset_id, cb){
+    delete self.datasets[dataset_id];
+    self.notify_callback_map[dataset_id] === null;
+    self.getStorageAdapter(dataset_id, true, function(err, storage){
+      storage.remove("dataset_" + dataset_id, function(){
+        self.consoleLog('local cache is cleared for dataset : ' + dataset_id);
+        if(cb){
+          return cb();
+        }
+      });
+    });
+  },
 
   updateDatasetFromLocal: function(dataset, pendingRec) {
     var pending = dataset.pending;
@@ -10463,15 +10714,6 @@ var self = {
               }
             }
           }
-          else if (!pendingRec.inFlight && pendingRec.crashed ) {
-            self.consoleLog('updateCrashedInFlightFromNewData - Trying to resolve issues with crashed non in flight record - uid = ' + pendingRec.uid);
-            // Stalled pending record because a previous pending update on the same record crashed
-            var crashedRef = resolvedCrashes[pendingRec.uid];
-            if( crashedRef ) {
-              self.consoleLog('updateCrashedInFlightFromNewData - Found a stalled pending record backed up behind a resolved crash uid=' + pendingRec.uid + ' :: hash=' + pendingRec.hash);
-              pendingRec.crashed = false;
-            }
-          }
         }
       }
     }
@@ -10501,6 +10743,50 @@ var self = {
     }
   },
 
+  updateMetaFromNewData: function(dataset_id, dataset, newData){
+    var meta = dataset.meta;
+    if(meta && newData && newData.updates && newData.updates.hashes){
+      for(var uid in meta){
+        if(meta.hasOwnProperty(uid)){
+          var metadata = meta[uid];
+          var pendingHash = metadata.pendingUid;
+          var previousPendingHash = metadata.previousPendingUid;
+          self.consoleLog("updateMetaFromNewData - Found metadata with uid = " + uid + " :: pendingHash = " + pendingHash + " :: previousPendingHash =" + previousPendingHash);
+          var previousPendingResolved = true;
+          var pendingResolved = true;
+          if(previousPendingHash){
+            //we have previous pending in meta data, see if it's resolved
+            previousPendingResolved = false;
+            var resolved = newData.updates.hashes[previousPendingHash];
+            if(resolved){
+              self.consoleLog("updateMetaFromNewData - Found previousPendingUid in meta data resolved - resolved = " + JSON.stringify(resolved));
+              //the previous pending is resolved in the cloud
+              metadata.previousPendingUid = undefined;
+              previousPendingResolved = true;
+            }
+          }
+          if(pendingHash){
+            //we have current pending in meta data, see if it's resolved
+            pendingResolved = false;
+            var resolved = newData.updates.hashes[pendingHash];
+            if(resolved){
+              self.consoleLog("updateMetaFromNewData - Found pendingUid in meta data resolved - resolved = " + JSON.stringify(resolved));
+              //the current pending is resolved in the cloud
+              metadata.pendingUid = undefined;
+              pendingResolved = true;
+            }
+          }
+
+          if(previousPendingResolved && pendingResolved){
+            self.consoleLog("updateMetaFromNewData - both previous and current pendings are resolved for meta data with uid " + uid + ". Delete it.");
+            //all pendings are resolved, the entry can be removed from meta data
+            delete meta[uid];
+          }
+        }
+      }
+    }
+  },
+
 
   markInFlightAsCrashed : function(dataset) {
     var pending = dataset.pending;
@@ -10520,21 +10806,6 @@ var self = {
           }
         }
       }
-
-      // Check for any pending updates that would be modifying a crashed record. These can not go out until the
-      // status of the crashed record is determined
-      for( pendingHash in pending ) {
-        if( pending.hasOwnProperty(pendingHash) ) {
-          pendingRec = pending[pendingHash];
-
-          if( ! pendingRec.inFlight && ! pendingRec.delayed ) {
-            var crashedRef = crashedRecords[pendingRec.uid];
-            if( crashedRef ) {
-              pendingRec.crashed = true;
-            }
-          }
-        }
-      }
     }
   },
 
@@ -10548,7 +10819,7 @@ var self = {
 (function() {
   self.config = self.defaults;
   //Initialse the sync service with default config
-  self.init({});
+  //self.init({});
 })();
 
 module.exports = {
@@ -10574,9 +10845,64 @@ module.exports = {
   startSync: self.startSync,
   stopSync: self.stopSync,
   doSync: self.doSync,
-  forceSync: self.forceSync
+  forceSync: self.forceSync,
+  generateHash: self.generateHash,
+  loadDataSet: self.loadDataSet,
+  checkHasCustomSync: self.checkHasCustomSync,
+  clearCache: self.clearCache
 };
-},{"../../libs/generated/crypto":1,"../../libs/generated/lawnchair":2,"./api_act":19,"./api_cloud":21,"JSON":3}],47:[function(_dereq_,module,exports){
+},{"../../libs/generated/crypto":1,"../../libs/generated/lawnchair":2,"./api_act":17,"./api_cloud":19,"JSON":3}],"./modules/appProps":[function(_dereq_,module,exports){
+module.exports=_dereq_('zDENqi');
+},{}],"zDENqi":[function(_dereq_,module,exports){
+var consts = _dereq_("../constants");
+var ajax = _dereq_("../ajax");
+var logger = _dereq_("../logger");
+var qs = _dereq_("../queryMap");
+
+
+var app_props = null;
+
+var load = function(cb) {
+ /*
+   We use eval here because Titanium also does require to include third party scripts.
+   It bypasses browserify's require, but still triggers when in a Titanium app
+   */
+  app_props = eval("require(\"fhconfig\")");
+  return cb(null, app_props);
+};
+
+var setAppProps = function(props) {
+  app_props = props;
+};
+
+var getAppProps = function() {
+  return app_props;
+};
+
+module.exports = {
+  load: load,
+  getAppProps: getAppProps,
+  setAppProps: setAppProps
+};
+
+},{"../ajax":16,"../constants":24,"../logger":33,"../queryMap":35}],"./cookies":[function(_dereq_,module,exports){
+module.exports=_dereq_('RdeKcl');
+},{}],"RdeKcl":[function(_dereq_,module,exports){
+module.exports = {
+  readCookieValue  : function (cookie_name) {
+    if (typeof Titanium !== 'undefined'){
+      return Titanium.App.Properties.getObject(cookie_name)
+    }
+    return null;
+  },
+
+  createCookie : function (cookie_name, cookie_value) {
+    if (typeof Titanium !== 'undefined'){
+      return Titanium.App.Properties.setObject(cookie_name, cookie_value)
+    }
+  }
+};
+},{}],46:[function(_dereq_,module,exports){
 module.exports = {
   createUUID : function () {
     //from http://stackoverflow.com/questions/105034/how-to-create-a-guid-uuid-in-javascript
@@ -10593,7 +10919,7 @@ module.exports = {
   }
 };
 
-},{}],48:[function(_dereq_,module,exports){
+},{}],47:[function(_dereq_,module,exports){
 var initializer = _dereq_("./initializer");
 var events = _dereq_("./events");
 var CloudHost = _dereq_("./hosts");
@@ -10618,18 +10944,26 @@ var ready = function(cb){
     });
     if(!is_initialising){
       is_initialising = true;
-      initializer.init(function(err, initRes){
-        is_initialising = false;
-        if(err){
-          init_error = err;
-          return events.emit(constants.INIT_EVENT, err);
-        } else {
-          init_error = null;
-          is_cloud_ready = true;
-          cloud_host = new CloudHost(initRes.cloud);
-          return events.emit(constants.INIT_EVENT, null, {host: getCloudHostUrl()});
-        }
-      });
+      var fhinit = function(){
+        initializer.init(function(err, initRes){
+          is_initialising = false;
+          if(err){
+            init_error = err;
+            return events.emit(constants.INIT_EVENT, err);
+          } else {
+            init_error = null;
+            is_cloud_ready = true;
+            cloud_host = new CloudHost(initRes.cloud);
+            return events.emit(constants.INIT_EVENT, null, {host: getCloudHostUrl()});
+          }
+        });
+      }
+      if(typeof window.cordova !== "undefined" || typeof window.phonegap !== "undefined"){
+        //if we are running inside cordova/phonegap, only init after device is ready to ensure the device id is the right one
+        document.addEventListener("deviceready", fhinit, false);
+      } else {
+        fhinit();
+      }
     }
   }
 }
@@ -10686,6 +11020,6 @@ module.exports = {
   getInitError: getInitError,
   reset: reset
 }
-},{"./appProps":25,"./constants":27,"./events":30,"./hosts":34,"./initializer":35,"./logger":38}]},{},[16])
-(16)
+},{"./appProps":"zDENqi","./constants":24,"./events":26,"./hosts":29,"./initializer":30,"./logger":33}]},{},[14])
+(14)
 });

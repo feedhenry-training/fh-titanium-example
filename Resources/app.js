@@ -1,60 +1,69 @@
-/*
- * Single Window Application Template:
- * A basic starting point for your application.  Mostly a blank canvas.
- *
- * In app.js, we generally take care of a few things:
- * - Bootstrap the application with any data we need
- * - Check for dependencies like device type, platform version or network connection
- * - Require and open our top-level UI component
- *
- */
-
-//bootstrap and check dependencies
-if (Ti.version < 1.8) {
-  alert('Sorry - this application template requires Titanium Mobile SDK 1.8 or later');
-}
-
-// This is a single context application with multiple windows in a stack
 (function() {
-  //render appropriate components based on the platform and form factor
-  var osname = Ti.Platform.osname,
-    version = Ti.Platform.version,
-    height = Ti.Platform.displayCaps.platformHeight,
-    width = Ti.Platform.displayCaps.platformWidth;
-
-  //considering tablets to have width over 720px and height over 600px - you can define your own
-  function checkTablet() {
-    var platform = Ti.Platform.osname;
-
-    switch (platform) {
-      case 'ipad':
-        return true;
-      case 'android':
-        var psc = Ti.Platform.Android.physicalSizeCategory;
-        var tiAndroid = Ti.Platform.Android;
-        return psc === tiAndroid.PHYSICAL_SIZE_CATEGORY_LARGE || psc === tiAndroid.PHYSICAL_SIZE_CATEGORY_XLARGE;
-      default:
-        return Math.min(
-          Ti.Platform.displayCaps.platformHeight,
-          Ti.Platform.displayCaps.platformWidth
-        ) >= 400
-    }
-  }
-
-  var isTablet = checkTablet();
-  console.log(isTablet);
-
-  var Window;
-  if (isTablet) {
-    Window = require('ui/tablet/ApplicationWindow');
-  } else {
-    // Android uses platform-specific properties to create windows.
-    // All other platforms follow a similar UI pattern.
-    if (osname === 'android') {
-      Window = require('ui/handheld/android/ApplicationWindow');
-    } else {
-      Window = require('ui/handheld/ApplicationWindow');
-    }
-  }
-  new Window().open();
+  var $fh = require('feedhenry-titanium');
+  var uiwindow = Ti.UI.createWindow({
+		backgroundColor:'#ffffff'
+  }),
+  view = Ti.UI.createView();
+  
+  
+  //label using localization-ready strings from <app dir>/i18n/en/strings.xml
+  var label_title = Ti.UI.createLabel({
+    top: 30,
+    font: { fontSize:18 },
+    text:'FeedHenry Quickstart - Titanium',
+    height:'auto',
+    width:'auto'
+  }),
+  label_welcome = Ti.UI.createLabel({
+    top: 70,
+    font: { fontSize:12 },
+    text:'This is a basic Titanium app integrated with a cloud app.\n' + 
+    'Use the button below to send your name to the cloud, and display the response.',
+    height:'auto',
+    width:'90%'
+  }),
+  textField = Ti.UI.createTextField({
+    hintText : 'Enter Your Name Here',
+    width: '80%',
+    borderStyle: Ti.UI.INPUT_BORDERSTYLE_ROUNDED,
+    top: 170
+  }),
+  button = Titanium.UI.createButton({
+    title: 'Say Hello From The Cloud',
+    width:'90%',
+    top: 220
+  }),
+  output= Ti.UI.createLabel({
+    top: 260,
+    font: { fontSize:10 },
+    height:100,
+    textAlign : Titanium.UI.TEXT_ALIGNMENT_CENTER,
+    width:'100%'
+  });
+  
+  
+  view.add(label_title);
+  view.add(label_welcome);
+  view.add(textField);
+  view.add(button);
+  view.add(output);
+  
+  button.addEventListener('click',function(e){
+  	var textFieldValue = textField.getValue();
+  	output.setText('Loading...');
+    $fh.cloud({
+      path: 'hello',
+      data: { 
+      	hello : textFieldValue 
+      }
+    }, function succ(res){
+      output.setText(JSON.stringify(res));
+      console.log(arguments);
+    }, function err(msg, err){
+      console.log(arguments);
+      output.setText(msg);
+    });
+  });
+  uiwindow.add(view);
+  uiwindow.open();
 })();
